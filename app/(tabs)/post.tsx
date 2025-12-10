@@ -9,34 +9,44 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity
+  TouchableOpacity,
 } from "react-native";
 import { auth, db } from "../../firebaseConfig";
 
+// ⭐ Firebase Storage importları
+import { getDownloadURL, getStorage, ref, uploadBytes } from "firebase/storage";
+
 export default function PostScreen() {
+  const [title, setTitle] = useState("");
   const [text, setText] = useState("");
   const [image, setImage] = useState<string | null>(null);
 
-  // 📌 FOTOĞRAF SEÇ
+  // ---------------------- FOTOĞRAF SEÇ ----------------------
   const pickImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
       allowsEditing: true,
       aspect: [4, 5],
       quality: 1,
     });
-    if (!result.canceled) setImage(result.assets[0].uri);
+
+    if (!result.canceled) {
+      setImage(result.assets[0].uri);
+    }
   };
 
-  // 📌 PAYLAŞIM
+  // ---------------------- PAYLAŞIM ----------------------
   const handleShare = async () => {
     try {
-      if (!text.trim() && !image) {
-        Alert.alert("Uyarı", "Lütfen yazı veya fotoğraf ekleyin.");
+      if (!title.trim() && !text.trim() && !image) {
+        Alert.alert("Uyarı", "Lütfen başlık, yazı veya fotoğraf ekleyin.");
         return;
       }
 
-      // 📍 KONUM
+      // 📍 KONUM AL
       let geo = null;
+      let city = "";
+      let district = "";
+
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status === "granted") {
         const loc = await Location.getCurrentPositionAsync({});
@@ -44,18 +54,51 @@ export default function PostScreen() {
           lat: loc.coords.latitude,
           lng: loc.coords.longitude,
         };
+
+        const geoRes = await Location.reverseGeocodeAsync({
+          latitude: geo.lat,
+          longitude: geo.lng,
+        });
+
+        if (geoRes && geoRes.length > 0) {
+          city = geoRes[0].city || "";
+          district = geoRes[0].district || "";
+        }
       }
 
-      // ⭐ FOTOĞRAFI LOCAL URI OLARAK KAYDET → ESKİ SİSTEMİN AYNISI
+      // ---------------------- STORAGE'A FOTO YÜKLE ----------------------
+      let downloadURL = null;
+
+      if (image) {
+        const storage = getStorage();
+        const filename = `posts/${Date.now()}.jpg`;
+        const storageRef = ref(storage, filename);
+
+        // Fotoğrafı binary blob olarak al
+        const img = await fetch(image);
+        const bytes = await img.blob();
+
+        // Storage'a yükle
+        await uploadBytes(storageRef, bytes);
+
+        // URL al
+        downloadURL = await getDownloadURL(storageRef);
+      }
+
+      // ---------------------- FIRESTORE KAYIT ----------------------
       await addDoc(collection(db, "posts"), {
-        text,
-        image: image, // 🔥 işte bu yüzden sende görünüyordu
+        title: title.trim(),
+        text: text.trim(),
+        image: downloadURL ?? null, // ⭐ Artık herkes görebilir
         userId: auth.currentUser?.uid,
         createdAt: serverTimestamp(),
         lat: geo?.lat ?? null,
         lng: geo?.lng ?? null,
+        location: { city, district },
       });
 
+      // Formu temizle
+      setTitle("");
       setText("");
       setImage(null);
 
@@ -71,10 +114,18 @@ export default function PostScreen() {
       <Text style={styles.title}>Yeni Gönderi</Text>
 
       <TextInput
-        placeholder="Bir şey yaz..."
+        placeholder="Başlık yaz..."
         style={styles.input}
+        value={title}
+        onChangeText={setTitle}
+      />
+
+      <TextInput
+        placeholder="Açıklama..."
+        style={[styles.input, { height: 100 }]}
         value={text}
         onChangeText={setText}
+        multiline
       />
 
       {image && <Image source={{ uri: image }} style={styles.previewImage} />}
@@ -107,7 +158,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   photoBtn: {
-    backgroundColor: "#444",
+    backgroundColor: "#333",
     padding: 16,
     borderRadius: 14,
     alignItems: "center",

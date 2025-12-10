@@ -6,7 +6,7 @@ import {
   onSnapshot,
   orderBy,
   query,
-  setDoc
+  setDoc,
 } from "firebase/firestore";
 import React, { useEffect, useRef, useState } from "react";
 import {
@@ -16,27 +16,37 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
 import MapView, { Marker, PROVIDER_GOOGLE, Region } from "react-native-maps";
 import { auth, db } from "../../firebaseConfig";
 
 type PostFromDb = {
   id: string;
+  title?: string;
   text?: string;
   image?: string | null;
   lat?: number;
   lng?: number;
   userId?: string;
+  location?: {
+    city?: string;
+    district?: string;
+  };
 };
 
 type MapPost = {
   id: string;
+  title?: string;
   text?: string;
   image?: string | null;
   latitude: number;
   longitude: number;
   userId: string;
+  location?: {
+    city?: string;
+    district?: string;
+  };
 };
 
 type UserLoc = {
@@ -51,8 +61,8 @@ function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
 
   const a =
     Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1 * Math.PI / 180) *
-      Math.cos(lat2 * Math.PI / 180) *
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
       Math.sin(dLon / 2) ** 2;
 
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
@@ -68,7 +78,7 @@ export default function MapScreen() {
 
   const fadeAnim = useRef(new Animated.Value(1)).current;
 
-  // ------------------ KONUM + POSTLAR ------------------
+  // ------------------ KONUM AL + POSTLARI ÇEK ------------------
   useEffect(() => {
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -91,11 +101,13 @@ export default function MapScreen() {
 
           return {
             id: d.id,
+            title: data.title ?? "",
             text: data.text ?? "",
             image: data.image ?? null,
             latitude: data.lat,
             longitude: data.lng,
             userId: data.userId,
+            location: data.location ?? {},
           };
         })
         .filter((p): p is MapPost => p !== null);
@@ -107,7 +119,7 @@ export default function MapScreen() {
     return unsub;
   }, []);
 
-  // ------------------ EN YAKIN POST ------------------
+  // ------------------ HARİTADA HAREKETE GÖRE EN YAKIN POST ------------------
   const onRegionChange = (region: Region) => {
     if (posts.length === 0) return;
 
@@ -115,7 +127,12 @@ export default function MapScreen() {
     let minDist = Number.MAX_VALUE;
 
     posts.forEach((p) => {
-      const dist = getDistance(region.latitude, region.longitude, p.latitude, p.longitude);
+      const dist = getDistance(
+        region.latitude,
+        region.longitude,
+        p.latitude,
+        p.longitude
+      );
       if (dist < minDist) {
         minDist = dist;
         closest = p;
@@ -132,7 +149,7 @@ export default function MapScreen() {
     setActivePost(closest);
   };
 
-  // ------------------ MESAJ İSTEĞİ GÖNDERME ------------------
+  // ------------------ MESAJ İSTEĞİ GÖNDER ------------------
   const sendMessageRequest = async () => {
     if (!currentUser || !activePost?.userId) return;
 
@@ -159,7 +176,7 @@ export default function MapScreen() {
     Alert.alert("Gönderildi", "Mesaj isteği karşı tarafa gönderildi.");
   };
 
-  // ------------------ CHAT READY LİSTENER 🔥 (İKİ TARAF İÇİN) ------------------
+  // ------------------ CHAT HAZIR OLUNCA AÇ ------------------
   useEffect(() => {
     if (!currentUser) return;
 
@@ -168,7 +185,6 @@ export default function MapScreen() {
         const data = docSnap.data();
         const chatId = docSnap.id;
 
-        // Kullanıcı bu chat’in içindeyse VE chat hazırsa → sohbeti aç
         if (data.users?.includes(currentUser) && data.ready === true) {
           router.push(`/chat/${chatId}`);
         }
@@ -178,7 +194,6 @@ export default function MapScreen() {
     return unsub;
   }, [currentUser]);
 
-  // ------------------ UI ------------------
   if (!userLoc || !activePost) {
     return (
       <View style={styles.loading}>
@@ -187,12 +202,20 @@ export default function MapScreen() {
     );
   }
 
+  const distance = getDistance(
+    userLoc.latitude,
+    userLoc.longitude,
+    activePost.latitude,
+    activePost.longitude
+  ).toFixed(2);
+
   return (
     <View style={{ flex: 1 }}>
+      {/* -------------------- MAP -------------------- */}
       <MapView
         provider={PROVIDER_GOOGLE}
         style={{ flex: 1 }}
-        showsUserLocation={true}
+        showsUserLocation
         initialRegion={{
           latitude: userLoc.latitude,
           longitude: userLoc.longitude,
@@ -201,39 +224,50 @@ export default function MapScreen() {
         }}
         onRegionChangeComplete={onRegionChange}
       >
-        {posts.map((post) => {
-          const isActive = activePost?.id === post.id;
-
-          return (
-            <Marker
-              key={post.id}
-              coordinate={{ latitude: post.latitude, longitude: post.longitude }}
-              pinColor={isActive ? "red" : "gray"}
-            />
-          );
-        })}
+        {posts.map((post) => (
+          <Marker
+            key={post.id}
+            coordinate={{ latitude: post.latitude, longitude: post.longitude }}
+            pinColor={post.id === activePost.id ? "red" : "gray"}
+          />
+        ))}
       </MapView>
 
+      {/* -------------------- ALT KART -------------------- */}
       <Animated.View style={[styles.cardContainer, { opacity: fadeAnim }]}>
-        <TouchableOpacity onPress={sendMessageRequest} style={styles.card}>
+        
+        {/* ⭐ KARTA TIKLAYINCA DETAYA GİDER */}
+        <TouchableOpacity
+  onPress={() => router.push(`../postdetail/${activePost.id}`)}
+  style={styles.card}
+  activeOpacity={0.9}
+>
           {activePost.image && (
             <Image source={{ uri: activePost.image }} style={styles.cardImg} />
           )}
 
-          <Text style={styles.cardText}>
-            {activePost.text?.length ? activePost.text.slice(0, 50) : "Gönderi"}
+          {/* ⭐ BAŞLIK */}
+          <Text style={styles.cardTitle}>
+            {activePost.title ? activePost.title : "Gönderi"}
           </Text>
 
-          <Text style={styles.cardDistance}>
-            📍 {getDistance(
-              userLoc.latitude,
-              userLoc.longitude,
-              activePost.latitude,
-              activePost.longitude
-            ).toFixed(2)} km yakınında
-          </Text>
+          {/* ⭐ KISA METİN */}
+          {activePost.text ? (
+            <Text style={styles.cardText}>
+              {activePost.text.length > 60
+                ? activePost.text.slice(0, 60) + "..."
+                : activePost.text}
+            </Text>
+          ) : null}
 
-          <Text style={styles.messageBtn}>💌 Mesaj İsteği Gönder</Text>
+          {/* ⭐ MESAFE */}
+          <Text style={styles.cardDistance}>📍 {distance} km yakınında</Text>
+
+          {/* ⭐ MESAJ İSTEĞİ BUTONU */}
+          <TouchableOpacity onPress={sendMessageRequest}>
+            <Text style={styles.messageBtn}>💌 Mesaj İsteği Gönder</Text>
+          </TouchableOpacity>
+
         </TouchableOpacity>
       </Animated.View>
     </View>
@@ -243,21 +277,50 @@ export default function MapScreen() {
 // ------------------ STYLES ------------------
 const styles = StyleSheet.create({
   loading: { flex: 1, justifyContent: "center", alignItems: "center" },
-  cardContainer: { position: "absolute", bottom: 110, alignSelf: "center" },
+
+  cardContainer: {
+    position: "absolute",
+    bottom: 110,
+    alignSelf: "center",
+  },
+
   card: {
     backgroundColor: "#fff",
-    padding: 10,
-    borderRadius: 12,
-    width: 250,
-    elevation: 5,
+    padding: 12,
+    borderRadius: 14,
+    width: 260,
+    elevation: 6,
   },
-  cardImg: { width: "100%", height: 140, borderRadius: 8, marginBottom: 6 },
-  cardText: { fontSize: 16, fontWeight: "600", marginBottom: 4 },
-  cardDistance: { fontSize: 13, color: "#555" },
+
+  cardImg: {
+    width: "100%",
+    height: 140,
+    borderRadius: 10,
+    marginBottom: 8,
+  },
+
+  cardTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    marginBottom: 3,
+  },
+
+  cardText: {
+    fontSize: 14,
+    color: "#444",
+    marginBottom: 4,
+  },
+
+  cardDistance: {
+    fontSize: 13,
+    color: "#666",
+    marginBottom: 8,
+  },
+
   messageBtn: {
-    marginTop: 8,
-    fontWeight: "600",
+    marginTop: 6,
+    fontWeight: "700",
     textAlign: "center",
-    color: "#0084ff",
+    color: "#0a84ff",
   },
 });
