@@ -1,6 +1,7 @@
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
+import { getDownloadURL, getStorage, ref, uploadBytes } from "firebase/storage";
 import React, { useState } from "react";
 import {
   Alert,
@@ -13,15 +14,11 @@ import {
 } from "react-native";
 import { auth, db } from "../../firebaseConfig";
 
-// ⭐ Firebase Storage importları
-import { getDownloadURL, getStorage, ref, uploadBytes } from "firebase/storage";
-
 export default function PostScreen() {
   const [title, setTitle] = useState("");
   const [text, setText] = useState("");
   const [image, setImage] = useState<string | null>(null);
 
-  // ---------------------- FOTOĞRAF SEÇ ----------------------
   const pickImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
       allowsEditing: true,
@@ -34,7 +31,6 @@ export default function PostScreen() {
     }
   };
 
-  // ---------------------- PAYLAŞIM ----------------------
   const handleShare = async () => {
     try {
       if (!title.trim() && !text.trim() && !image) {
@@ -42,62 +38,44 @@ export default function PostScreen() {
         return;
       }
 
-      // 📍 KONUM AL
-      let geo = null;
-      let city = "";
-      let district = "";
-
+      // --- KONUM AL ---
       const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status === "granted") {
-        const loc = await Location.getCurrentPositionAsync({});
-        geo = {
-          lat: loc.coords.latitude,
-          lng: loc.coords.longitude,
-        };
-
-        const geoRes = await Location.reverseGeocodeAsync({
-          latitude: geo.lat,
-          longitude: geo.lng,
-        });
-
-        if (geoRes && geoRes.length > 0) {
-          city = geoRes[0].city || "";
-          district = geoRes[0].district || "";
-        }
+      if (status !== "granted") {
+        return Alert.alert("Hata", "Konum izni verilmedi.");
       }
 
-      // ---------------------- STORAGE'A FOTO YÜKLE ----------------------
-      let downloadURL = null;
+      const loc = await Location.getCurrentPositionAsync({});
+      const lat = loc.coords.latitude;
+      const lng = loc.coords.longitude;
 
+      if (!lat || !lng) {
+        return Alert.alert("Hata", "Konum alınamadı.");
+      }
+
+      // --- FOTOĞRAF YÜKLE ---
+      let downloadURL = null;
       if (image) {
         const storage = getStorage();
         const filename = `posts/${Date.now()}.jpg`;
         const storageRef = ref(storage, filename);
 
-        // Fotoğrafı binary blob olarak al
         const img = await fetch(image);
         const bytes = await img.blob();
-
-        // Storage'a yükle
         await uploadBytes(storageRef, bytes);
-
-        // URL al
         downloadURL = await getDownloadURL(storageRef);
       }
 
-      // ---------------------- FIRESTORE KAYIT ----------------------
+      // --- FIRESTORE'A KAYDET ---
       await addDoc(collection(db, "posts"), {
         title: title.trim(),
         text: text.trim(),
-        image: downloadURL ?? null, // ⭐ Artık herkes görebilir
+        image: downloadURL,
         userId: auth.currentUser?.uid,
         createdAt: serverTimestamp(),
-        lat: geo?.lat ?? null,
-        lng: geo?.lng ?? null,
-        location: { city, district },
+        lat,
+        lng,
       });
 
-      // Formu temizle
       setTitle("");
       setText("");
       setImage(null);
