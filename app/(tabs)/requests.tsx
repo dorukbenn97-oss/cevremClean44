@@ -4,7 +4,8 @@ import {
   deleteDoc,
   doc,
   onSnapshot,
-  setDoc
+  serverTimestamp,
+  setDoc,
 } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import {
@@ -12,7 +13,7 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
 import { auth, db } from "../../firebaseConfig";
 
@@ -20,7 +21,7 @@ type MessageRequest = {
   from: string;
   postId: string;
   timestamp: number;
-  id: string;
+  id: string; // senderId
 };
 
 export default function RequestsScreen() {
@@ -29,17 +30,17 @@ export default function RequestsScreen() {
 
   const [requests, setRequests] = useState<MessageRequest[]>([]);
 
-  // 🔥 GELEN MESAJ İSTEKLERİNİ DİNLE
+  /* ---------------- INCOMING REQUESTS ---------------- */
   useEffect(() => {
     if (!currentUser) return;
 
     const q = collection(db, "messageRequests", currentUser, "incoming");
 
     const unsub = onSnapshot(q, (snap) => {
-      const list = snap.docs.map((d) => {
-        const data = d.data() as Omit<MessageRequest, "id">;
-        return { ...data, id: d.id };
-      });
+      const list = snap.docs.map((d) => ({
+        ...(d.data() as Omit<MessageRequest, "id">),
+        id: d.id,
+      }));
 
       setRequests(list);
     });
@@ -47,42 +48,52 @@ export default function RequestsScreen() {
     return unsub;
   }, [currentUser]);
 
-  // ❌ REDDET
+  /* ---------------- REJECT ---------------- */
   const rejectRequest = async (senderId: string) => {
-    await deleteDoc(doc(db, "messageRequests", currentUser!, "incoming", senderId));
+    if (!currentUser) return;
+
+    await deleteDoc(
+      doc(db, "messageRequests", currentUser, "incoming", senderId)
+    );
   };
 
-  // ⭐ KABUL ET → CHAT İKİ TARAFTA DA AÇILACAK
+  /* ---------------- ACCEPT ---------------- */
   const acceptRequest = async (senderId: string) => {
     if (!currentUser) return;
 
     const chatId = [currentUser, senderId].sort().join("_");
 
-    // 1) CHAT OLUŞTUR / GÜNCELLE
+    // 1️⃣ CHAT ANA DOKÜMANI (KALICI)
     await setDoc(
       doc(db, "chats", chatId),
       {
         users: [currentUser, senderId],
-        createdAt: Date.now(),
-        ready: true   // 🔥 HER İKİ TARAFA DA CHATİN HAZIR OLDUĞUNU SÖYLER
+        lastMessage: "Chat başlatıldı",
+        updatedAt: serverTimestamp(),
+        createdAt: serverTimestamp(),
       },
       { merge: true }
     );
 
-    // 2) İLK MESAJ
-    await setDoc(doc(db, "chats", chatId, "messages", "init"), {
-      system: true,
-      text: "Chat başlatıldı",
-      timestamp: Date.now(),
-    });
+    // 2️⃣ İLK SİSTEM MESAJI (varsa tekrar yazmaz)
+    await setDoc(
+      doc(db, "chats", chatId, "messages", "init"),
+      {
+        system: true,
+        text: "Chat başlatıldı",
+        senderId: "system",
+        timestamp: serverTimestamp(),
+      },
+      { merge: true }
+    );
 
-    // 3) İSTEĞİ SİL
+    // 3️⃣ İSTEĞİ SİL
     await deleteDoc(
       doc(db, "messageRequests", currentUser, "incoming", senderId)
     );
 
-    // 4) KABUL EDEN TARAF İÇİN CHAT AÇ
-    router.push(`/chat/${chatId}`);
+    // 4️⃣ CHAT AÇ (⚠️ otherUserId ÇOK ÖNEMLİ)
+    router.push(`/chat/${chatId}?otherUserId=${senderId}`);
   };
 
   return (
@@ -98,7 +109,7 @@ export default function RequestsScreen() {
           renderItem={({ item }) => (
             <View style={styles.requestBox}>
               <Text style={styles.requestText}>
-                💬 Yeni mesaj isteği geldi!{"\n"}
+                💬 Yeni mesaj isteği{"\n"}
                 Gönderen: {item.id}
               </Text>
 
@@ -125,11 +136,16 @@ export default function RequestsScreen() {
   );
 }
 
-// --- STYLES ---
+/* ---------------- STYLES ---------------- */
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 20, backgroundColor: "white" },
   title: { fontSize: 26, fontWeight: "700", marginBottom: 20 },
-  empty: { fontSize: 16, color: "#888", marginTop: 20, textAlign: "center" },
+  empty: {
+    fontSize: 16,
+    color: "#888",
+    marginTop: 20,
+    textAlign: "center",
+  },
   requestBox: {
     padding: 15,
     borderRadius: 12,
