@@ -143,7 +143,7 @@ export default function IndexScreen() {
           key={post.id}
           onPress={() => {
             // 👉 POSTA TIKLAYINCA DETAY SAYFASINA GİT
-            router.push(`/postdetail?id=${post.id}`);
+            router.push(`/postdetail/${post.id}`);
           }}
         >
           <View style={[styles.postCard, { backgroundColor: colors.card }]}>
