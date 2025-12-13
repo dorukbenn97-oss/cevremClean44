@@ -9,6 +9,7 @@ import {
   query,
   serverTimestamp,
   setDoc,
+  updateDoc,
 } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
@@ -32,6 +33,7 @@ export default function ChatScreen() {
 
   const [messages, setMessages] = useState<any[]>([]);
   const [text, setText] = useState("");
+  const [typingUser, setTypingUser] = useState<string | null>(null);
 
   const currentUser = auth.currentUser?.uid;
 
@@ -51,6 +53,33 @@ export default function ChatScreen() {
     return unsub;
   }, [chatId]);
 
+  /* ---------------- TYPING LISTENER ---------------- */
+  useEffect(() => {
+    if (!chatId || !currentUser) return;
+
+    const unsub = onSnapshot(doc(db, "chats", chatId), (snap) => {
+      const data = snap.data();
+      if (data?.typing?.userId && data.typing.userId !== currentUser) {
+        setTypingUser(data.typing.userId);
+      } else {
+        setTypingUser(null);
+      }
+    });
+
+    return unsub;
+  }, [chatId, currentUser]);
+
+  /* ---------------- SET TYPING ---------------- */
+  const setTyping = async (isTyping: boolean) => {
+    if (!chatId || !currentUser) return;
+
+    await updateDoc(doc(db, "chats", chatId), {
+      typing: isTyping
+        ? { userId: currentUser, updatedAt: serverTimestamp() }
+        : { userId: null, updatedAt: serverTimestamp() },
+    });
+  };
+
   /* ---------------- SEND MESSAGE ---------------- */
   const sendMessage = async () => {
     if (!text.trim() || !currentUser || !chatId || !otherUserId) return;
@@ -62,13 +91,14 @@ export default function ChatScreen() {
       timestamp: serverTimestamp(),
     });
 
-    // 2️⃣ Chat ana dokümanını GÜNCELLE / OLUŞTUR
+    // 2️⃣ Chat ana dokümanını güncelle
     await setDoc(
       doc(db, "chats", chatId),
       {
         users: [currentUser, otherUserId],
         lastMessage: text,
         updatedAt: serverTimestamp(),
+        typing: { userId: null, updatedAt: serverTimestamp() },
       },
       { merge: true }
     );
@@ -118,6 +148,11 @@ export default function ChatScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* YAZIYOR */}
+      {typingUser && (
+        <Text style={styles.typingText}>Yazıyor...</Text>
+      )}
+
       {/* MESSAGES */}
       <FlatList
         data={messages}
@@ -148,7 +183,11 @@ export default function ChatScreen() {
           style={styles.input}
           placeholder="Mesaj yaz..."
           value={text}
-          onChangeText={setText}
+          onChangeText={(t) => {
+            setText(t);
+            setTyping(t.length > 0);
+          }}
+          onBlur={() => setTyping(false)}
         />
         <TouchableOpacity style={styles.sendBtn} onPress={sendMessage}>
           <Text style={{ color: "white", fontWeight: "700" }}>Gönder</Text>
@@ -170,6 +209,12 @@ const styles = StyleSheet.create({
   },
   topBtn: { fontSize: 22 },
   topTitle: { fontSize: 18, fontWeight: "700" },
+  typingText: {
+    marginLeft: 16,
+    marginTop: 6,
+    color: "#888",
+    fontStyle: "italic",
+  },
   msgBubble: {
     maxWidth: "80%",
     padding: 10,
