@@ -18,13 +18,18 @@ import {
 } from "react-native";
 import { auth, db } from "../../firebaseConfig";
 
-const EXPIRE_HOURS = 24; // 🔥 post kaç saat sonra silinsin
+const EXPIRE_HOURS = 24; // ⏱️ post süresi (24 saat)
+
+/* -------- POST CODE ÜRET -------- */
+function generatePostCode() {
+  return Math.random().toString(36).substring(2, 6).toUpperCase();
+}
 
 export default function PostScreen() {
   const [title, setTitle] = useState("");
   const [text, setText] = useState("");
   const [image, setImage] = useState<string | null>(null);
-  const [isSharing, setIsSharing] = useState(false); // ✅ UX fix
+  const [isSharing, setIsSharing] = useState(false);
 
   const pickImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -39,7 +44,7 @@ export default function PostScreen() {
   };
 
   const handleShare = async () => {
-    if (isSharing) return; // 🔒 çift tık engeli
+    if (isSharing) return;
 
     try {
       if (!title.trim() && !text.trim() && !image) {
@@ -60,11 +65,6 @@ export default function PostScreen() {
       const lat = loc.coords.latitude;
       const lng = loc.coords.longitude;
 
-      if (!lat || !lng) {
-        setIsSharing(false);
-        return Alert.alert("Hata", "Konum alınamadı.");
-      }
-
       /* ---------- FOTO ---------- */
       let downloadURL = null;
       if (image) {
@@ -78,11 +78,14 @@ export default function PostScreen() {
         downloadURL = await getDownloadURL(storageRef);
       }
 
-      /* ---------- TTL ---------- */
+      /* ---------- ZAMAN ---------- */
       const now = Timestamp.now();
       const expiresAt = Timestamp.fromMillis(
         now.toMillis() + EXPIRE_HOURS * 60 * 60 * 1000
       );
+
+      /* ---------- POST CODE ---------- */
+      const postCode = generatePostCode();
 
       /* ---------- FIRESTORE ---------- */
       await addDoc(collection(db, "posts"), {
@@ -93,14 +96,15 @@ export default function PostScreen() {
         lat,
         lng,
         createdAt: now,
-        expiresAt, // 🔥 TTL alanı
+        expiresAt,
+        postCode, // 🔑 EKLENDİ
       });
 
       setTitle("");
       setText("");
       setImage(null);
 
-      Alert.alert("✔", "Gönderi paylaşıldı!");
+      Alert.alert("✔", `Gönderi paylaşıldı\nKod: ${postCode}`);
     } catch (err) {
       console.log("POST ERROR:", err);
       Alert.alert("Hata", "Gönderi paylaşılırken sorun oluştu.");
@@ -135,10 +139,7 @@ export default function PostScreen() {
       </TouchableOpacity>
 
       <TouchableOpacity
-        style={[
-          styles.shareBtn,
-          isSharing && { opacity: 0.6 },
-        ]}
+        style={[styles.shareBtn, isSharing && { opacity: 0.6 }]}
         onPress={handleShare}
         disabled={isSharing}
       >

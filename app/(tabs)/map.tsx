@@ -15,6 +15,7 @@ import {
   Image,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -47,6 +48,9 @@ export default function MapScreen() {
   const [userLoc, setUserLoc] = useState<any>(null);
   const [posts, setPosts] = useState<MapPost[]>([]);
   const [activePost, setActivePost] = useState<MapPost | null>(null);
+
+  // 🔍 POST CODE SEARCH
+  const [searchCode, setSearchCode] = useState("");
 
   /* ---------------- HALO ANIMATION ---------------- */
   useEffect(() => {
@@ -122,6 +126,31 @@ export default function MapScreen() {
     return unsub;
   }, []);
 
+  /* ---------------- POST CODE SEARCH ---------------- */
+  const findPostByCode = () => {
+    const found = posts.find(
+      (p) => p.postCode?.toLowerCase() === searchCode.trim().toLowerCase()
+    );
+
+    if (!found) {
+      Alert.alert("Bulunamadı", "Bu koda ait bir post yok.");
+      return;
+    }
+
+    mapRef.current?.animateToRegion(
+      {
+        latitude: found.latitude,
+        longitude: found.longitude,
+        latitudeDelta: 0.003,
+        longitudeDelta: 0.003,
+      },
+      900
+    );
+
+    setActivePost(found);
+    setSearchCode("");
+  };
+
   /* ---------------- CLOSE CARD (SMOOTH) ---------------- */
   const closeCard = () => {
     Animated.parallel([
@@ -173,6 +202,19 @@ export default function MapScreen() {
 
   return (
     <View style={{ flex: 1 }}>
+      {/* 🔍 SEARCH BAR */}
+      <View style={styles.searchBar}>
+        <TextInput
+          placeholder="Post kodu gir"
+          value={searchCode}
+          onChangeText={setSearchCode}
+          style={styles.searchInput}
+        />
+        <TouchableOpacity onPress={findPostByCode}>
+          <Text style={styles.searchBtn}>🔍</Text>
+        </TouchableOpacity>
+      </View>
+
       <MapView
         ref={mapRef}
         provider={PROVIDER_GOOGLE}
@@ -268,6 +310,29 @@ export default function MapScreen() {
 /* ---------------- STYLES ---------------- */
 const styles = StyleSheet.create({
   loading: { flex: 1, justifyContent: "center", alignItems: "center" },
+
+  searchBar: {
+    position: "absolute",
+    top: 50,
+    left: 16,
+    right: 16,
+    zIndex: 20,
+    flexDirection: "row",
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    alignItems: "center",
+    elevation: 4,
+  },
+
+  searchInput: {
+    flex: 1,
+    height: 40,
+  },
+
+  searchBtn: {
+    fontSize: 20,
+  },
 
   markerWrap: {
     alignItems: "center",
