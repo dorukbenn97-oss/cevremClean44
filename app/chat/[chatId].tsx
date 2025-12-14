@@ -23,6 +23,15 @@ import {
 } from "react-native";
 import { auth, db } from "../../firebaseConfig";
 
+/* ---------------- TYPES ---------------- */
+type Message = {
+  id: string;
+  text: string;
+  senderId: string;
+  timestamp: any;
+  seen?: boolean;
+};
+
 export default function ChatScreen() {
   const { chatId, otherUserId } = useLocalSearchParams<{
     chatId: string;
@@ -31,27 +40,42 @@ export default function ChatScreen() {
 
   const router = useRouter();
 
-  const [messages, setMessages] = useState<any[]>([]);
+  const currentUser = auth.currentUser?.uid;
+
+  const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState("");
   const [typingUser, setTypingUser] = useState<string | null>(null);
 
-  const currentUser = auth.currentUser?.uid;
-
   /* ---------------- MESSAGES LISTENER ---------------- */
   useEffect(() => {
-    if (!chatId) return;
+    if (!chatId || !currentUser) return;
 
     const q = query(
       collection(db, "chats", chatId, "messages"),
       orderBy("timestamp", "asc")
     );
 
-    const unsub = onSnapshot(q, (snap) => {
-      setMessages(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    const unsub = onSnapshot(q, async (snap) => {
+      const msgs = snap.docs.map(
+        (d) => ({ id: d.id, ...(d.data() as Omit<Message, "id">) })
+      );
+
+      setMessages(msgs);
+
+      // ✅ OKUNDU: karşı tarafın mesajlarını ✓✓ yap
+      snap.docs.forEach(async (d) => {
+        const data = d.data();
+        if (
+          data.senderId !== currentUser &&
+          data.seen !== true
+        ) {
+          await updateDoc(d.ref, { seen: true });
+        }
+      });
     });
 
     return unsub;
-  }, [chatId]);
+  }, [chatId, currentUser]);
 
   /* ---------------- TYPING LISTENER ---------------- */
   useEffect(() => {
@@ -74,9 +98,10 @@ export default function ChatScreen() {
     if (!chatId || !currentUser) return;
 
     await updateDoc(doc(db, "chats", chatId), {
-      typing: isTyping
-        ? { userId: currentUser, updatedAt: serverTimestamp() }
-        : { userId: null, updatedAt: serverTimestamp() },
+      typing: {
+        userId: isTyping ? currentUser : null,
+        updatedAt: serverTimestamp(),
+      },
     });
   };
 
@@ -84,11 +109,12 @@ export default function ChatScreen() {
   const sendMessage = async () => {
     if (!text.trim() || !currentUser || !chatId || !otherUserId) return;
 
-    // 1️⃣ Mesajı yaz
+    // 1️⃣ Mesaj (✓)
     await addDoc(collection(db, "chats", chatId, "messages"), {
       text,
       senderId: currentUser,
       timestamp: serverTimestamp(),
+      seen: false, // 👈 tek tik
     });
 
     // 2️⃣ Chat ana dokümanını güncelle
@@ -104,6 +130,7 @@ export default function ChatScreen() {
     );
 
     setText("");
+    setTyping(false);
   };
 
   /* ---------------- UNSEND ---------------- */
@@ -149,9 +176,7 @@ export default function ChatScreen() {
       </View>
 
       {/* YAZIYOR */}
-      {typingUser && (
-        <Text style={styles.typingText}>Yazıyor...</Text>
-      )}
+      {typingUser && <Text style={styles.typingText}>Yazıyor...</Text>}
 
       {/* MESSAGES */}
       <FlatList
@@ -160,9 +185,10 @@ export default function ChatScreen() {
         contentContainerStyle={{ padding: 15 }}
         renderItem={({ item }) => {
           const isMe = item.senderId === currentUser;
+
           return (
             <TouchableOpacity
-              onLongPress={() => (isMe ? unsendMessage(item.id) : null)}
+              onLongPress={() => (isMe ? unsendMessage(item.id) : undefined)}
             >
               <View
                 style={[
@@ -171,6 +197,12 @@ export default function ChatScreen() {
                 ]}
               >
                 <Text style={styles.msgText}>{item.text}</Text>
+
+                {isMe && (
+                  <Text style={styles.seenText}>
+                    {item.seen ? "✓✓" : "✓"}
+                  </Text>
+                )}
               </View>
             </TouchableOpacity>
           );
@@ -230,6 +262,12 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   msgText: { fontSize: 16 },
+  seenText: {
+    fontSize: 12,
+    marginTop: 4,
+    color: "#555",
+    alignSelf: "flex-end",
+  },
   inputArea: {
     flexDirection: "row",
     padding: 10,
