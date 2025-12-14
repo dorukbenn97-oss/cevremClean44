@@ -1,6 +1,10 @@
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
+import {
+  addDoc,
+  collection,
+  Timestamp
+} from "firebase/firestore";
 import { getDownloadURL, getStorage, ref, uploadBytes } from "firebase/storage";
 import React, { useState } from "react";
 import {
@@ -14,10 +18,13 @@ import {
 } from "react-native";
 import { auth, db } from "../../firebaseConfig";
 
+const EXPIRE_HOURS = 24; // 🔥 post kaç saat sonra silinsin
+
 export default function PostScreen() {
   const [title, setTitle] = useState("");
   const [text, setText] = useState("");
   const [image, setImage] = useState<string | null>(null);
+  const [isSharing, setIsSharing] = useState(false); // ✅ UX fix
 
   const pickImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -32,15 +39,20 @@ export default function PostScreen() {
   };
 
   const handleShare = async () => {
+    if (isSharing) return; // 🔒 çift tık engeli
+
     try {
       if (!title.trim() && !text.trim() && !image) {
         Alert.alert("Uyarı", "Lütfen başlık, yazı veya fotoğraf ekleyin.");
         return;
       }
 
-      // --- KONUM AL ---
+      setIsSharing(true);
+
+      /* ---------- KONUM ---------- */
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") {
+        setIsSharing(false);
         return Alert.alert("Hata", "Konum izni verilmedi.");
       }
 
@@ -49,10 +61,11 @@ export default function PostScreen() {
       const lng = loc.coords.longitude;
 
       if (!lat || !lng) {
+        setIsSharing(false);
         return Alert.alert("Hata", "Konum alınamadı.");
       }
 
-      // --- FOTOĞRAF YÜKLE ---
+      /* ---------- FOTO ---------- */
       let downloadURL = null;
       if (image) {
         const storage = getStorage();
@@ -65,15 +78,22 @@ export default function PostScreen() {
         downloadURL = await getDownloadURL(storageRef);
       }
 
-      // --- FIRESTORE'A KAYDET ---
+      /* ---------- TTL ---------- */
+      const now = Timestamp.now();
+      const expiresAt = Timestamp.fromMillis(
+        now.toMillis() + EXPIRE_HOURS * 60 * 60 * 1000
+      );
+
+      /* ---------- FIRESTORE ---------- */
       await addDoc(collection(db, "posts"), {
         title: title.trim(),
         text: text.trim(),
         image: downloadURL,
         userId: auth.currentUser?.uid,
-        createdAt: serverTimestamp(),
         lat,
         lng,
+        createdAt: now,
+        expiresAt, // 🔥 TTL alanı
       });
 
       setTitle("");
@@ -84,6 +104,8 @@ export default function PostScreen() {
     } catch (err) {
       console.log("POST ERROR:", err);
       Alert.alert("Hata", "Gönderi paylaşılırken sorun oluştu.");
+    } finally {
+      setIsSharing(false);
     }
   };
 
@@ -112,13 +134,23 @@ export default function PostScreen() {
         <Text style={styles.photoBtnText}>Fotoğraf Seç</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity style={styles.shareBtn} onPress={handleShare}>
-        <Text style={styles.shareBtnText}>Paylaş</Text>
+      <TouchableOpacity
+        style={[
+          styles.shareBtn,
+          isSharing && { opacity: 0.6 },
+        ]}
+        onPress={handleShare}
+        disabled={isSharing}
+      >
+        <Text style={styles.shareBtnText}>
+          {isSharing ? "Paylaşılıyor..." : "Paylaş"}
+        </Text>
       </TouchableOpacity>
     </ScrollView>
   );
 }
 
+/* ---------------- STYLES ---------------- */
 const styles = StyleSheet.create({
   container: { flex: 1, paddingTop: 60, paddingHorizontal: 20 },
   title: { fontSize: 32, fontWeight: "800", marginBottom: 20 },

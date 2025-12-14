@@ -18,201 +18,163 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import MapView, { Marker, PROVIDER_GOOGLE, Region } from "react-native-maps";
+import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import { auth, db } from "../../firebaseConfig";
 
-type PostFromDb = {
-  id: string;
-  title?: string;
-  text?: string;
-  image?: string | null;
-  lat?: number;
-  lng?: number;
-  userId?: string;
-  location?: {
-    city?: string;
-    district?: string;
-  };
-};
-
+/* ---------------- TYPES ---------------- */
 type MapPost = {
   id: string;
   title?: string;
-  text?: string;
   image?: string | null;
   latitude: number;
   longitude: number;
   userId: string;
-  location?: {
-    city?: string;
-    district?: string;
-  };
+  createdAt?: number;
+  postCode: string;
 };
-
-type UserLoc = {
-  latitude: number;
-  longitude: number;
-};
-
-function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
-  const R = 6371;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) ** 2;
-
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
 
 export default function MapScreen() {
   const router = useRouter();
   const currentUser = auth.currentUser?.uid;
 
-  const [userLoc, setUserLoc] = useState<UserLoc | null>(null);
+  const haloAnim = useRef(new Animated.Value(1)).current;
+  const mapRef = useRef<MapView>(null);
+
+  // 🔥 CARD ANIMATION
+  const cardOpacity = useRef(new Animated.Value(1)).current;
+  const cardTranslateY = useRef(new Animated.Value(0)).current;
+
+  const [userLoc, setUserLoc] = useState<any>(null);
   const [posts, setPosts] = useState<MapPost[]>([]);
   const [activePost, setActivePost] = useState<MapPost | null>(null);
 
-  const fadeAnim = useRef(new Animated.Value(1)).current;
+  /* ---------------- HALO ANIMATION ---------------- */
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(haloAnim, {
+          toValue: 2.2,
+          duration: 1100,
+          useNativeDriver: true,
+        }),
+        Animated.timing(haloAnim, {
+          toValue: 1,
+          duration: 1100,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  }, []);
 
-  // ------------------ KONUM AL + POSTLARI ÇEK ------------------
+  /* ---------------- LOCATION + POSTS ---------------- */
   useEffect(() => {
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") return;
 
       const loc = await Location.getCurrentPositionAsync({});
-      setUserLoc({
-        latitude: loc.coords.latitude,
-        longitude: loc.coords.longitude,
-      });
+      setUserLoc(loc.coords);
     })();
 
     const q = query(collection(db, "posts"), orderBy("createdAt", "desc"));
 
     const unsub = onSnapshot(q, (snap) => {
-      const list = snap.docs
-        .map((d): MapPost | null => {
-          const data = d.data() as PostFromDb;
-          if (!data.lat || !data.lng || !data.userId) return null;
+      const list = snap.docs.map((d) => {
+        const data = d.data();
+        const createdAt =
+          data.createdAt?.toMillis
+            ? data.createdAt.toMillis()
+            : data.createdAt;
 
-          return {
-            id: d.id,
-            title: data.title ?? "",
-            text: data.text ?? "",
-            image: data.image ?? null,
-            latitude: data.lat,
-            longitude: data.lng,
-            userId: data.userId,
-            location: data.location ?? {},
-          };
-        })
-        .filter((p): p is MapPost => p !== null);
+        return {
+          id: d.id,
+          title: data.title ?? "",
+          image: data.image ?? null,
+          latitude: data.lat,
+          longitude: data.lng,
+          userId: data.userId,
+          createdAt,
+          postCode: data.postCode,
+        };
+      });
 
       setPosts(list);
-      setActivePost(list[0]);
+
+      if (list.length > 0) {
+        const newest = list[0];
+        if (
+          typeof newest.createdAt === "number" &&
+          Date.now() - newest.createdAt < 2 * 60 * 1000
+        ) {
+          mapRef.current?.animateToRegion(
+            {
+              latitude: newest.latitude,
+              longitude: newest.longitude,
+              latitudeDelta: 0.004,
+              longitudeDelta: 0.004,
+            },
+            900
+          );
+        }
+      }
     });
 
     return unsub;
   }, []);
 
-  // ------------------ HARİTADA HAREKETE GÖRE EN YAKIN POST ------------------
-  const onRegionChange = (region: Region) => {
-    if (posts.length === 0) return;
-
-    let closest = posts[0];
-    let minDist = Number.MAX_VALUE;
-
-    posts.forEach((p) => {
-      const dist = getDistance(
-        region.latitude,
-        region.longitude,
-        p.latitude,
-        p.longitude
-      );
-      if (dist < minDist) {
-        minDist = dist;
-        closest = p;
-      }
+  /* ---------------- CLOSE CARD (SMOOTH) ---------------- */
+  const closeCard = () => {
+    Animated.parallel([
+      Animated.timing(cardOpacity, {
+        toValue: 0,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+      Animated.timing(cardTranslateY, {
+        toValue: 20,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setActivePost(null);
+      cardOpacity.setValue(1);
+      cardTranslateY.setValue(0);
     });
-
-    if (activePost && closest.id === activePost.id) return;
-
-    Animated.sequence([
-      Animated.timing(fadeAnim, { toValue: 0, duration: 120, useNativeDriver: true }),
-      Animated.timing(fadeAnim, { toValue: 1, duration: 120, useNativeDriver: true }),
-    ]).start();
-
-    setActivePost(closest);
   };
 
-  // ------------------ MESAJ İSTEĞİ GÖNDER ------------------
+  /* ---------------- MESSAGE REQUEST ---------------- */
   const sendMessageRequest = async () => {
-    if (!currentUser || !activePost?.userId) return;
-
+    if (!currentUser || !activePost) return;
     if (currentUser === activePost.userId) {
       Alert.alert("Bilgi", "Kendine mesaj isteği gönderemezsin.");
       return;
     }
 
-    const reqRef = doc(
-      db,
-      "messageRequests",
-      activePost.userId,
-      "incoming",
-      currentUser
+    await setDoc(
+      doc(db, "messageRequests", activePost.userId, "incoming", currentUser),
+      {
+        from: currentUser,
+        postId: activePost.id,
+        timestamp: Date.now(),
+        status: "pending",
+      }
     );
 
-    await setDoc(reqRef, {
-      from: currentUser,
-      postId: activePost.id,
-      timestamp: Date.now(),
-      status: "pending",
-    });
-
-    Alert.alert("Gönderildi", "Mesaj isteği karşı tarafa gönderildi.");
+    Alert.alert("Gönderildi", "Mesaj isteği gönderildi.");
   };
 
-  // ------------------ CHAT HAZIR OLUNCA AÇ ------------------
-  useEffect(() => {
-    if (!currentUser) return;
-
-    const unsub = onSnapshot(collection(db, "chats"), (snap) => {
-      snap.forEach((docSnap) => {
-        const data = docSnap.data();
-        const chatId = docSnap.id;
-
-        if (data.users?.includes(currentUser) && data.ready === true) {
-          router.push(`/chat/${chatId}`);
-        }
-      });
-    });
-
-    return unsub;
-  }, [currentUser]);
-
-  if (!userLoc || !activePost) {
+  if (!userLoc) {
     return (
       <View style={styles.loading}>
-        <Text style={{ fontSize: 18 }}>📍 Konum alınıyor...</Text>
+        <Text>📍 Konum alınıyor...</Text>
       </View>
     );
   }
 
-  const distance = getDistance(
-    userLoc.latitude,
-    userLoc.longitude,
-    activePost.latitude,
-    activePost.longitude
-  ).toFixed(2);
-
   return (
     <View style={{ flex: 1 }}>
-      {/* -------------------- MAP -------------------- */}
       <MapView
+        ref={mapRef}
         provider={PROVIDER_GOOGLE}
         style={{ flex: 1 }}
         showsUserLocation
@@ -222,61 +184,115 @@ export default function MapScreen() {
           latitudeDelta: 0.01,
           longitudeDelta: 0.01,
         }}
-        onRegionChangeComplete={onRegionChange}
       >
-        {posts.map((post) => (
-          <Marker
-            key={post.id}
-            coordinate={{ latitude: post.latitude, longitude: post.longitude }}
-            pinColor={post.id === activePost.id ? "red" : "gray"}
-          />
-        ))}
+        {posts.map((post) => {
+          const isNew =
+            typeof post.createdAt === "number" &&
+            Date.now() - post.createdAt < 5 * 60 * 1000;
+
+          return (
+            <Marker
+              key={post.id}
+              coordinate={{ latitude: post.latitude, longitude: post.longitude }}
+              onPress={() => setActivePost(post)}
+              anchor={{ x: 0.5, y: 0.5 }}
+              zIndex={isNew ? 10 : 1}
+            >
+              <View style={styles.markerWrap}>
+                {isNew && (
+                  <Animated.View
+                    style={[
+                      styles.halo,
+                      { transform: [{ scale: haloAnim }] },
+                    ]}
+                  />
+                )}
+
+                <View
+                  style={[
+                    styles.pin,
+                    isNew && styles.pinNew,
+                    { backgroundColor: isNew ? "#ff3b30" : "#0a84ff" },
+                  ]}
+                />
+              </View>
+            </Marker>
+          );
+        })}
       </MapView>
 
-      {/* -------------------- ALT KART -------------------- */}
-      <Animated.View style={[styles.cardContainer, { opacity: fadeAnim }]}>
-        
-        {/* ⭐ KARTA TIKLAYINCA DETAYA GİDER */}
-        <TouchableOpacity
-  onPress={() => router.push(`../postdetail/${activePost.id}`)}
-  style={styles.card}
-  activeOpacity={0.9}
->
-          {activePost.image && (
-            <Image source={{ uri: activePost.image }} style={styles.cardImg} />
-          )}
+      {/* ---------------- CARD ---------------- */}
+      {activePost && (
+        <Animated.View
+          style={[
+            styles.cardContainer,
+            {
+              opacity: cardOpacity,
+              transform: [{ translateY: cardTranslateY }],
+            },
+          ]}
+        >
+          <View style={styles.card}>
+            <TouchableOpacity style={styles.closeBtn} onPress={closeCard}>
+              <Text>✕</Text>
+            </TouchableOpacity>
 
-          {/* ⭐ BAŞLIK */}
-          <Text style={styles.cardTitle}>
-            {activePost.title ? activePost.title : "Gönderi"}
-          </Text>
+            {activePost.image && (
+              <Image source={{ uri: activePost.image }} style={styles.cardImg} />
+            )}
 
-          {/* ⭐ KISA METİN */}
-          {activePost.text ? (
-            <Text style={styles.cardText}>
-              {activePost.text.length > 60
-                ? activePost.text.slice(0, 60) + "..."
-                : activePost.text}
+            <Text style={styles.cardTitle}>
+              {activePost.title || "Gönderi"}
             </Text>
-          ) : null}
 
-          {/* ⭐ MESAFE */}
-          <Text style={styles.cardDistance}>📍 {distance} km yakınında</Text>
+            <Text style={styles.cardCode}>
+              🔑 Kod: {activePost.postCode}
+            </Text>
 
-          {/* ⭐ MESAJ İSTEĞİ BUTONU */}
-          <TouchableOpacity onPress={sendMessageRequest}>
-            <Text style={styles.messageBtn}>💌 Mesaj İsteği Gönder</Text>
-          </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => router.push(`../postdetail/${activePost.id}`)}
+            >
+              <Text style={styles.detailText}>🔍 Detaya bak</Text>
+            </TouchableOpacity>
 
-        </TouchableOpacity>
-      </Animated.View>
+            <TouchableOpacity onPress={sendMessageRequest}>
+              <Text style={styles.messageBtn}>💌 Mesaj isteği gönder</Text>
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
+      )}
     </View>
   );
 }
 
-// ------------------ STYLES ------------------
+/* ---------------- STYLES ---------------- */
 const styles = StyleSheet.create({
   loading: { flex: 1, justifyContent: "center", alignItems: "center" },
+
+  markerWrap: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  pin: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+  },
+
+  pinNew: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+  },
+
+  halo: {
+    position: "absolute",
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: "rgba(255,59,48,0.18)",
+  },
 
   cardContainer: {
     position: "absolute",
@@ -289,38 +305,42 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 14,
     width: 260,
-    elevation: 6,
+  },
+
+  closeBtn: {
+    position: "absolute",
+    top: 6,
+    right: 6,
   },
 
   cardImg: {
     width: "100%",
     height: 140,
     borderRadius: 10,
-    marginBottom: 8,
+    marginBottom: 6,
   },
 
   cardTitle: {
     fontSize: 17,
     fontWeight: "700",
-    marginBottom: 3,
   },
 
-  cardText: {
-    fontSize: 14,
-    color: "#444",
-    marginBottom: 4,
-  },
-
-  cardDistance: {
+  cardCode: {
     fontSize: 13,
-    color: "#666",
-    marginBottom: 8,
+    color: "#555",
+    marginVertical: 4,
+  },
+
+  detailText: {
+    textAlign: "center",
+    fontWeight: "600",
+    marginTop: 6,
   },
 
   messageBtn: {
-    marginTop: 6,
-    fontWeight: "700",
     textAlign: "center",
     color: "#0a84ff",
+    fontWeight: "700",
+    marginTop: 8,
   },
 });
