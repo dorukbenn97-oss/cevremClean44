@@ -22,6 +22,7 @@ type Post = {
   title?: string;
   text?: string;
   createdAt?: any;
+  createdAtClient?: number;
 };
 
 export default function FeedScreen() {
@@ -29,9 +30,10 @@ export default function FeedScreen() {
   const [posts, setPosts] = useState<Post[]>([]);
 
   useEffect(() => {
+    // 🔥 createdAtClient ile sırala (web + mobil uyumlu)
     const q = query(
       collection(db, "posts"),
-      orderBy("createdAt", "desc")
+      orderBy("createdAtClient", "desc")
     );
 
     const unsub = onSnapshot(q, (snap) => {
@@ -56,12 +58,9 @@ export default function FeedScreen() {
             style={styles.card}
             onPress={() => router.push(`/postdetail/${item.id}`)}
           >
-            {item.image && (
-              <Image
-                source={{ uri: item.image }}
-                style={styles.image}
-              />
-            )}
+            {item.image ? (
+              <Image source={{ uri: item.image }} style={styles.image} />
+            ) : null}
 
             {item.title ? (
               <Text style={styles.title}>{item.title}</Text>
@@ -83,18 +82,16 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
   },
 
-  // 🔥 WEB + MOBİL UYUMLU KART
   card: {
     marginBottom: 28,
-    maxWidth: 520,          // web’de ortalar
+    maxWidth: 520,
     width: "100%",
     alignSelf: "center",
   },
 
-  // 🔥 ORANI KORUNAN RESİM
   image: {
     width: "100%",
-    aspectRatio: 1,         // biçimsizlik bitti
+    aspectRatio: 1,
     borderRadius: 8,
     backgroundColor: "#eee",
   },
