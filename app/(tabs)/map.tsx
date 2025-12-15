@@ -13,6 +13,7 @@ import {
   Alert,
   Animated,
   Image,
+  Platform,
   StyleSheet,
   Text,
   TextInput,
@@ -35,6 +36,15 @@ type MapPost = {
 };
 
 export default function MapScreen() {
+  /* 🌐 WEB İZOLASYONU (SADECE BU EKLENDİ) */
+  if (Platform.OS === "web") {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+        <Text>🗺️ Harita mobilde kullanılabilir</Text>
+      </View>
+    );
+  }
+
   const router = useRouter();
   const currentUser = auth.currentUser?.uid;
 
