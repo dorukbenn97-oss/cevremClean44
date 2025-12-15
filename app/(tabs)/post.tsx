@@ -3,9 +3,14 @@ import * as Location from "expo-location";
 import {
   addDoc,
   collection,
-  Timestamp
+  Timestamp,
 } from "firebase/firestore";
-import { getDownloadURL, getStorage, ref, uploadBytes } from "firebase/storage";
+import {
+  getDownloadURL,
+  getStorage,
+  ref,
+  uploadBytes,
+} from "firebase/storage";
 import React, { useState } from "react";
 import {
   Alert,
@@ -18,9 +23,9 @@ import {
 } from "react-native";
 import { auth, db } from "../../firebaseConfig";
 
-const EXPIRE_HOURS = 24; // ⏱️ post süresi (24 saat)
+const EXPIRE_HOURS = 24;
 
-/* -------- POST CODE ÜRET -------- */
+/* -------- POST CODE -------- */
 function generatePostCode() {
   return Math.random().toString(36).substring(2, 6).toUpperCase();
 }
@@ -66,7 +71,7 @@ export default function PostScreen() {
       const lng = loc.coords.longitude;
 
       /* ---------- FOTO ---------- */
-      let downloadURL = null;
+      let downloadURL: string | null = null;
       if (image) {
         const storage = getStorage();
         const filename = `posts/${Date.now()}.jpg`;
@@ -84,20 +89,20 @@ export default function PostScreen() {
         now.toMillis() + EXPIRE_HOURS * 60 * 60 * 1000
       );
 
-      /* ---------- POST CODE ---------- */
+      /* ---------- POST ---------- */
       const postCode = generatePostCode();
 
-      /* ---------- FIRESTORE ---------- */
       await addDoc(collection(db, "posts"), {
         title: title.trim(),
         text: text.trim(),
         image: downloadURL,
-        userId: auth.currentUser?.uid,
+        userId: auth.currentUser?.uid || null,
         lat,
         lng,
-        createdAt: now,
+        createdAt: now,                 // server
+        createdAtClient: Date.now(),    // 🔥 FEED İÇİN ŞART
         expiresAt,
-        postCode, // 🔑 EKLENDİ
+        postCode,
       });
 
       setTitle("");
@@ -132,7 +137,9 @@ export default function PostScreen() {
         multiline
       />
 
-      {image && <Image source={{ uri: image }} style={styles.previewImage} />}
+      {image && (
+        <Image source={{ uri: image }} style={styles.previewImage} />
+      )}
 
       <TouchableOpacity style={styles.photoBtn} onPress={pickImage}>
         <Text style={styles.photoBtnText}>Fotoğraf Seç</Text>
