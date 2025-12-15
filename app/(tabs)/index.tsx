@@ -4,6 +4,7 @@ import {
   onSnapshot,
   orderBy,
   query,
+  where,
 } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
@@ -30,9 +31,9 @@ export default function FeedScreen() {
   const [posts, setPosts] = useState<Post[]>([]);
 
   useEffect(() => {
-    // 🔥 createdAtClient ile sırala (web + mobil uyumlu)
     const q = query(
       collection(db, "posts"),
+      where("createdAtClient", "!=", null),
       orderBy("createdAtClient", "desc")
     );
 
@@ -58,17 +59,17 @@ export default function FeedScreen() {
             style={styles.card}
             onPress={() => router.push(`/postdetail/${item.id}`)}
           >
-            {item.image ? (
+            {item.image && (
               <Image source={{ uri: item.image }} style={styles.image} />
-            ) : null}
+            )}
 
-            {item.title ? (
+            {item.title && (
               <Text style={styles.title}>{item.title}</Text>
-            ) : null}
+            )}
 
-            {item.text ? (
+            {item.text && (
               <Text style={styles.text}>{item.text}</Text>
-            ) : null}
+            )}
           </TouchableOpacity>
         )}
       />
@@ -77,32 +78,25 @@ export default function FeedScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#fff",
-  },
-
+  container: { flex: 1, backgroundColor: "#fff" },
   card: {
     marginBottom: 28,
     maxWidth: 520,
     width: "100%",
     alignSelf: "center",
   },
-
   image: {
     width: "100%",
     aspectRatio: 1,
     borderRadius: 8,
     backgroundColor: "#eee",
   },
-
   title: {
     fontSize: 15,
     fontWeight: "600",
     marginTop: 10,
     marginHorizontal: 8,
   },
-
   text: {
     fontSize: 14,
     color: "#555",
