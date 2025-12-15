@@ -3,11 +3,7 @@ import { Tabs } from "expo-router";
 export default function MainTabs() {
   return (
     <Tabs screenOptions={{ headerShown: false }}>
-      {/* Ana akış */}
-      <Tabs.Screen
-        name="index"
-        options={{ title: "Anasayfa" }}
-      />
+      
 
       {/* Mesajlar (CHAT LİSTESİ) */}
       <Tabs.Screen
@@ -33,11 +29,7 @@ export default function MainTabs() {
         options={{ title: "Paylaş" }}
       />
 
-      {/* Harita */}
-      <Tabs.Screen
-        name="map"
-        options={{ title: "Harita" }}
-      />
+      
 
       {/* Profil */}
       <Tabs.Screen
