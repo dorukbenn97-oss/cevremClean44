@@ -69,7 +69,7 @@ export default function ChatRoom() {
     getDeviceId().then(setDeviceId);
   }, []);
 
-  /* CHAT + OWNER + KİLİT + KAPALI */
+  /* CHAT + OWNER + TEK KULLANIMLIK DAVET */
   useEffect(() => {
     if (!chatId || !deviceId) return;
 
@@ -94,25 +94,35 @@ export default function ChatRoom() {
         await updateDoc(ref, { ownerId: ownerNow });
       }
 
+      const isAlreadyInside = allowedNow.includes(deviceId);
+
       // YENİ GİRİŞ
-      if (!allowedNow.includes(deviceId)) {
+      if (!isAlreadyInside) {
         if (lockedNow || closedNow) {
           Alert.alert(
             "Giriş Kapalı",
             closedNow
               ? "Bu sohbet kalıcı olarak kapatıldı."
-              : "Bu odaya yeni girişler kapalı."
+              : "Bu davet kodu artık geçersiz."
           );
           router.replace("/");
           return;
         }
 
+        const updatedAllowed = [...allowedNow, deviceId];
+
+        // 🎟️ TEK KULLANIMLIK DAVET:
+        // Owner dışındaki İLK girişten sonra otomatik kilitlenir
+        const shouldAutoLock =
+          ownerNow !== deviceId && allowedNow.length === 1;
+
         await updateDoc(ref, {
-          allowed: [...allowedNow, deviceId],
+          allowed: updatedAllowed,
+          ...(shouldAutoLock ? { locked: true } : {}),
         });
       }
 
-      setLocked(lockedNow);
+      setLocked(data.locked || false);
       setClosed(closedNow);
       setAllowed(allowedNow);
       setOwnerId(ownerNow);
@@ -277,7 +287,6 @@ export default function ChatRoom() {
         </View>
       </View>
 
-      {/* DURUM BANDI */}
       {(locked || closed) && (
         <View
           style={{
@@ -294,7 +303,7 @@ export default function ChatRoom() {
           >
             {closed
               ? "🛑 Bu sohbet kalıcı olarak kapatıldı"
-              : "🔒 Oda kilitli — yeni girişler kapalı"}
+              : "🎟️ Davet kullanıldı — yeni giriş yok"}
           </Text>
         </View>
       )}
@@ -345,7 +354,6 @@ export default function ChatRoom() {
         </Text>
       )}
 
-      {/* INPUT */}
       {!closed ? (
         <View style={{ flexDirection: "row", padding: 10 }}>
           <TextInput
