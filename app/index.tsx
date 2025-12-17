@@ -1,14 +1,10 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
-import {
-  doc,
-  getDoc,
-  serverTimestamp,
-  setDoc,
-} from "firebase/firestore";
-import { useEffect, useState } from "react";
+import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import { useEffect, useRef, useState } from "react";
 import {
   Alert,
+  Animated,
   FlatList,
   Text,
   TextInput,
@@ -17,6 +13,7 @@ import {
 } from "react-native";
 import { db } from "../firebaseConfig";
 
+/* 🔐 6 HANELİ GİZLİ KOD */
 function generateCode() {
   return Math.random().toString(36).substring(2, 8).toUpperCase();
 }
@@ -25,6 +22,26 @@ export default function Index() {
   const router = useRouter();
   const [code, setCode] = useState("");
   const [myChats, setMyChats] = useState<string[]>([]);
+
+  /* 🔥 PULSE ANİMASYONU */
+  const pulse = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 1.04,
+          duration: 1400,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 1400,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  }, []);
 
   /* 🔹 CHAT LİSTESİNİ YÜKLE */
   useEffect(() => {
@@ -59,7 +76,7 @@ export default function Index() {
 
     const snap = await getDoc(doc(db, "chats", c));
     if (!snap.exists()) {
-      Alert.alert("Geçersiz Kod", "Bu koda ait bir sohbet yok.");
+      Alert.alert("Geçersiz Kod", "Bu davet koduna ait bir oda yok.");
       return;
     }
 
@@ -68,41 +85,104 @@ export default function Index() {
   };
 
   return (
-    <View style={{ flex: 1, padding: 24 }}>
-      <Text style={{ fontSize: 24, fontWeight: "700", marginBottom: 20 }}>
-        Özel Sohbet
-      </Text>
+    <View style={{ flex: 1, backgroundColor: "#0B0B0F", padding: 24 }}>
+      {/* 🎭 HERO */}
+      <View style={{ alignItems: "center", marginBottom: 30 }}>
+        <Animated.Text
+          style={{
+            fontSize: 50,
+            transform: [{ scale: pulse }],
+            marginBottom: 12,
+          }}
+        >
+          🕶️
+        </Animated.Text>
 
-      {/* KOD AL */}
+        <Text
+          style={{
+            fontSize: 24,
+            fontWeight: "800",
+            color: "#fff",
+            textAlign: "center",
+          }}
+        >
+          Sadece İkinizin Bildiği
+        </Text>
+
+        <Text
+          style={{
+            marginTop: 6,
+            color: "#8A8A8F",
+            textAlign: "center",
+            fontSize: 14,
+          }}
+        >
+          Davet yoksa giriş yok
+        </Text>
+      </View>
+
+      {/* 🔥 AKTİF HİS */}
+      <View
+        style={{
+          flexDirection: "row",
+          justifyContent: "center",
+          alignItems: "center",
+          marginBottom: 22,
+        }}
+      >
+        <Animated.View
+          style={{
+            width: 7,
+            height: 7,
+            borderRadius: 4,
+            backgroundColor: "#FF3B30",
+            marginRight: 8,
+            transform: [{ scale: pulse }],
+          }}
+        />
+        <Text style={{ color: "#9A9A9F", fontSize: 13 }}>
+          Şu an aktif gizli odalar var
+        </Text>
+      </View>
+
+      {/* 🔐 KOD AL */}
       <TouchableOpacity
         onPress={createChatAndGo}
         style={{
-          backgroundColor: "#000",
-          padding: 14,
-          borderRadius: 10,
-          marginBottom: 20,
+          backgroundColor: "#16161D",
+          padding: 16,
+          borderRadius: 14,
+          marginBottom: 16,
+          borderWidth: 1,
+          borderColor: "#2C2C35",
         }}
       >
-        <Text style={{ color: "#fff", textAlign: "center", fontSize: 16 }}>
-          Kod Al
+        <Text
+          style={{
+            color: "#fff",
+            textAlign: "center",
+            fontSize: 17,
+            fontWeight: "700",
+          }}
+        >
+          🔐 Gizli Oda Oluştur
         </Text>
       </TouchableOpacity>
 
-      <Text style={{ textAlign: "center", marginBottom: 10 }}>
-        veya kod ile gir
-      </Text>
-
-      {/* KOD İLE GİR */}
+      {/* 🎟️ KOD İLE GİR */}
       <TextInput
         value={code}
         onChangeText={setCode}
-        placeholder="Sohbet kodu gir"
+        placeholder="Davet kodu"
+        placeholderTextColor="#666"
         autoCapitalize="characters"
         style={{
+          backgroundColor: "#0F0F14",
+          color: "#fff",
           borderWidth: 1,
-          borderColor: "#ccc",
-          borderRadius: 10,
-          padding: 12,
+          borderColor: "#2C2C35",
+          borderRadius: 12,
+          padding: 14,
           marginBottom: 12,
         }}
       />
@@ -112,26 +192,27 @@ export default function Index() {
         style={{
           backgroundColor: "#007AFF",
           padding: 14,
-          borderRadius: 10,
-          marginBottom: 24,
+          borderRadius: 12,
+          marginBottom: 28,
         }}
       >
         <Text style={{ color: "#fff", textAlign: "center", fontSize: 16 }}>
-          Sohbete Gir
+          🎟️ Kod ile Gir
         </Text>
       </TouchableOpacity>
 
-      {/* 🔥 SADECE KOD GÖSTEREN CHAT LİSTESİ */}
+      {/* 🔒 SOHBETLERİM */}
       {myChats.length > 0 && (
         <>
           <Text
             style={{
               fontSize: 18,
               fontWeight: "700",
+              color: "#fff",
               marginBottom: 12,
             }}
           >
-            Sohbetlerim
+            Gizli Odaların
           </Text>
 
           <FlatList
@@ -143,12 +224,15 @@ export default function Index() {
                 style={{
                   padding: 14,
                   borderWidth: 1,
-                  borderColor: "#ddd",
-                  borderRadius: 10,
+                  borderColor: "#2C2C35",
+                  borderRadius: 12,
                   marginBottom: 10,
+                  backgroundColor: "#111117",
                 }}
               >
-                <Text style={{ fontSize: 16 }}>🔒 {item}</Text>
+                <Text style={{ fontSize: 16, color: "#fff" }}>
+                  🕶️ {item}
+                </Text>
               </TouchableOpacity>
             )}
           />
