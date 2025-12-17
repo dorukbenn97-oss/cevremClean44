@@ -1,41 +1,11 @@
-import { Tabs } from "expo-router";
+import { Stack } from "expo-router";
 
-export default function MainTabs() {
+export default function RootLayout() {
   return (
-    <Tabs screenOptions={{ headerShown: false }}>
-      
-
-      {/* Mesajlar (CHAT LİSTESİ) */}
-      <Tabs.Screen
-        name="chats"
-        options={{
-          title: "Mesajlar",
-          tabBarLabel: "Mesajlar",
-        }}
-      />
-
-      {/* Mesaj İstekleri */}
-      <Tabs.Screen
-        name="requests"
-        options={{
-          title: "Mesaj İstekleri",
-          tabBarLabel: "İstekler",
-        }}
-      />
-
-      {/* Post */}
-      <Tabs.Screen
-        name="post"
-        options={{ title: "Paylaş" }}
-      />
-
-      
-
-      {/* Profil */}
-      <Tabs.Screen
-        name="profile"
-        options={{ title: "Profil" }}
-      />
-    </Tabs>
+    <Stack screenOptions={{ headerShown: false }}>
+      {/* SADECE kod bazlı sohbet */}
+      <Stack.Screen name="index" />
+      <Stack.Screen name="chat/[chatId]" />
+    </Stack>
   );
 }

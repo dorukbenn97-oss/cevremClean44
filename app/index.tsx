@@ -1,5 +1,94 @@
-import { Redirect } from "expo-router";
+import { useRouter } from "expo-router";
+import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import { useState } from "react";
+import { Alert, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { db } from "../firebaseConfig";
+
+function generateCode() {
+  return Math.random().toString(36).substring(2, 8).toUpperCase();
+}
 
 export default function Index() {
-  return <Redirect href="/(tabs)/post" />;
+  const router = useRouter();
+  const [code, setCode] = useState("");
+
+  // 🔹 KOD AL: Firestore'da chat oluşturur
+  const createChatAndGo = async () => {
+    const newCode = generateCode();
+
+    await setDoc(doc(db, "chats", newCode), {
+      createdAt: serverTimestamp(),
+    });
+
+    router.push(`/chat/${newCode}`);
+  };
+
+  // 🔹 KOD İLE GİR: Var mı kontrol eder
+  const goChatIfExists = async () => {
+    const c = code.trim().toUpperCase();
+    if (!c) return;
+
+    const snap = await getDoc(doc(db, "chats", c));
+    if (!snap.exists()) {
+      Alert.alert("Geçersiz Kod", "Bu koda ait bir sohbet yok.");
+      return;
+    }
+
+    router.push(`/chat/${c}`);
+  };
+
+  return (
+    <View style={{ flex: 1, justifyContent: "center", padding: 24 }}>
+      <Text style={{ fontSize: 24, fontWeight: "700", marginBottom: 24 }}>
+        Özel Sohbet
+      </Text>
+
+      {/* KOD AL */}
+      <TouchableOpacity
+        onPress={createChatAndGo}
+        style={{
+          backgroundColor: "#000",
+          padding: 14,
+          borderRadius: 10,
+          marginBottom: 20,
+        }}
+      >
+        <Text style={{ color: "#fff", textAlign: "center", fontSize: 16 }}>
+          Kod Al
+        </Text>
+      </TouchableOpacity>
+
+      <Text style={{ textAlign: "center", marginBottom: 10 }}>
+        veya kod ile gir
+      </Text>
+
+      {/* KOD İLE GİR */}
+      <TextInput
+        value={code}
+        onChangeText={setCode}
+        placeholder="Sohbet kodu gir"
+        autoCapitalize="characters"
+        style={{
+          borderWidth: 1,
+          borderColor: "#ccc",
+          borderRadius: 10,
+          padding: 12,
+          marginBottom: 12,
+        }}
+      />
+
+      <TouchableOpacity
+        onPress={goChatIfExists}
+        style={{
+          backgroundColor: "#007AFF",
+          padding: 14,
+          borderRadius: 10,
+        }}
+      >
+        <Text style={{ color: "#fff", textAlign: "center", fontSize: 16 }}>
+          Sohbete Gir
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
 }

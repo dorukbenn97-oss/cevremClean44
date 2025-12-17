@@ -2,289 +2,147 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   addDoc,
   collection,
-  deleteDoc,
   doc,
+  getDoc,
   onSnapshot,
   orderBy,
   query,
   serverTimestamp,
-  setDoc,
-  updateDoc,
 } from "firebase/firestore";
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
   FlatList,
-  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
-import { auth, db } from "../../firebaseConfig";
+import { db } from "../../firebaseConfig";
 
-/* ---------------- TYPES ---------------- */
-type Message = {
-  id: string;
-  text: string;
-  senderId: string;
-  timestamp: any;
-  seen?: boolean;
-};
-
-export default function ChatScreen() {
-  const { chatId, otherUserId } = useLocalSearchParams<{
-    chatId: string;
-    otherUserId: string;
-  }>();
-
+export default function ChatRoom() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ chatId?: string | string[] }>();
+  const chatId = Array.isArray(params.chatId)
+    ? params.chatId[0]
+    : params.chatId;
 
-  const currentUser = auth.currentUser?.uid;
-
-  const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState("");
-  const [typingUser, setTypingUser] = useState<string | null>(null);
+  const [messages, setMessages] = useState<any[]>([]);
+  const [ready, setReady] = useState(false);
 
-  /* ---------------- MESSAGES LISTENER ---------------- */
+  // 🔒 CHAT VAR MI KONTROL
   useEffect(() => {
-    if (!chatId || !currentUser) return;
+    if (!chatId) return;
+
+    (async () => {
+      const snap = await getDoc(doc(db, "chats", chatId));
+      if (!snap.exists()) {
+        Alert.alert("Geçersiz Kod", "Bu sohbete erişim yok.");
+        router.replace("/");
+        return;
+      }
+      setReady(true);
+    })();
+  }, [chatId]);
+
+  // 📡 MESAJLARI DİNLE
+  useEffect(() => {
+    if (!ready || !chatId) return;
 
     const q = query(
       collection(db, "chats", chatId, "messages"),
-      orderBy("timestamp", "asc")
+      orderBy("createdAt", "asc")
     );
 
-    const unsub = onSnapshot(q, async (snap) => {
-      const msgs = snap.docs.map(
-        (d) => ({ id: d.id, ...(d.data() as Omit<Message, "id">) })
-      );
-
-      setMessages(msgs);
-
-      // ✅ OKUNDU: karşı tarafın mesajlarını ✓✓ yap
-      snap.docs.forEach(async (d) => {
-        const data = d.data();
-        if (
-          data.senderId !== currentUser &&
-          data.seen !== true
-        ) {
-          await updateDoc(d.ref, { seen: true });
-        }
-      });
+    return onSnapshot(q, (snap) => {
+      setMessages(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     });
+  }, [ready, chatId]);
 
-    return unsub;
-  }, [chatId, currentUser]);
-
-  /* ---------------- TYPING LISTENER ---------------- */
-  useEffect(() => {
-    if (!chatId || !currentUser) return;
-
-    const unsub = onSnapshot(doc(db, "chats", chatId), (snap) => {
-      const data = snap.data();
-      if (data?.typing?.userId && data.typing.userId !== currentUser) {
-        setTypingUser(data.typing.userId);
-      } else {
-        setTypingUser(null);
-      }
-    });
-
-    return unsub;
-  }, [chatId, currentUser]);
-
-  /* ---------------- SET TYPING ---------------- */
-  const setTyping = async (isTyping: boolean) => {
-    if (!chatId || !currentUser) return;
-
-    await updateDoc(doc(db, "chats", chatId), {
-      typing: {
-        userId: isTyping ? currentUser : null,
-        updatedAt: serverTimestamp(),
-      },
-    });
-  };
-
-  /* ---------------- SEND MESSAGE ---------------- */
   const sendMessage = async () => {
-    if (!text.trim() || !currentUser || !chatId || !otherUserId) return;
+    if (!text.trim() || !chatId) return;
 
-    // 1️⃣ Mesaj (✓)
     await addDoc(collection(db, "chats", chatId, "messages"), {
-      text,
-      senderId: currentUser,
-      timestamp: serverTimestamp(),
-      seen: false, // 👈 tek tik
+      text: text.trim(),
+      createdAt: serverTimestamp(),
     });
-
-    // 2️⃣ Chat ana dokümanını güncelle
-    await setDoc(
-      doc(db, "chats", chatId),
-      {
-        users: [currentUser, otherUserId],
-        lastMessage: text,
-        updatedAt: serverTimestamp(),
-        typing: { userId: null, updatedAt: serverTimestamp() },
-      },
-      { merge: true }
-    );
 
     setText("");
-    setTyping(false);
   };
 
-  /* ---------------- UNSEND ---------------- */
-  const unsendMessage = async (msgId: string) => {
-    if (!chatId) return;
-    await deleteDoc(doc(db, "chats", chatId, "messages", msgId));
-  };
-
-  /* ---------------- BLOCK ---------------- */
-  const blockUser = async () => {
-    if (!currentUser || !chatId) return;
-
-    Alert.alert("Engelle", "Bu kullanıcıyı engellemek istiyor musun?", [
-      { text: "İptal", style: "cancel" },
-      {
-        text: "Engelle",
-        style: "destructive",
-        onPress: async () => {
-          await setDoc(
-            doc(db, "blocked", currentUser),
-            { [chatId]: true },
-            { merge: true }
-          );
-          router.replace("../");
-        },
-      },
-    ]);
-  };
+  if (!ready) return null;
 
   return (
-    <View style={styles.container}>
-      {/* TOP BAR */}
-      <View style={styles.topBar}>
-        <TouchableOpacity onPress={() => router.replace("../")}>
-          <Text style={styles.topBtn}>←</Text>
+    <View style={{ flex: 1, padding: 16 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
+        <TouchableOpacity onPress={() => router.replace("/")}>
+          <Text style={{ fontSize: 18 }}>←</Text>
         </TouchableOpacity>
-
-        <Text style={styles.topTitle}>Sohbet</Text>
-
-        <TouchableOpacity onPress={blockUser}>
-          <Text style={[styles.topBtn, { color: "red" }]}>🛑</Text>
-        </TouchableOpacity>
+        <Text style={{ fontSize: 18, fontWeight: "700", marginLeft: 12 }}>
+          Sohbet ({chatId})
+        </Text>
       </View>
 
-      {/* YAZIYOR */}
-      {typingUser && <Text style={styles.typingText}>Yazıyor...</Text>}
-
-      {/* MESSAGES */}
       <FlatList
         data={messages}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={{ padding: 15 }}
-        renderItem={({ item }) => {
-          const isMe = item.senderId === currentUser;
-
-          return (
-            <TouchableOpacity
-              onLongPress={() => (isMe ? unsendMessage(item.id) : undefined)}
-            >
-              <View
-                style={[
-                  styles.msgBubble,
-                  isMe ? styles.myMsg : styles.otherMsg,
-                ]}
-              >
-                <Text style={styles.msgText}>{item.text}</Text>
-
-                {isMe && (
-                  <Text style={styles.seenText}>
-                    {item.seen ? "✓✓" : "✓"}
-                  </Text>
-                )}
-              </View>
-            </TouchableOpacity>
-          );
-        }}
+        renderItem={({ item }) => (
+          <View
+            style={{
+              backgroundColor: "#eee",
+              padding: 10,
+              borderRadius: 10,
+              marginBottom: 8,
+              maxWidth: "80%",
+            }}
+          >
+            <Text>{item.text}</Text>
+          </View>
+        )}
+        contentContainerStyle={{ paddingBottom: 80 }}
       />
 
-      {/* INPUT */}
-      <View style={styles.inputArea}>
+      <View
+        style={{
+          position: "absolute",
+          bottom: 0,
+          left: 0,
+          right: 0,
+          flexDirection: "row",
+          padding: 10,
+          borderTopWidth: 1,
+          borderColor: "#ddd",
+          backgroundColor: "#fff",
+        }}
+      >
         <TextInput
-          style={styles.input}
-          placeholder="Mesaj yaz..."
           value={text}
-          onChangeText={(t) => {
-            setText(t);
-            setTyping(t.length > 0);
+          onChangeText={setText}
+          placeholder="Mesaj yaz..."
+          style={{
+            flex: 1,
+            borderWidth: 1,
+            borderColor: "#ccc",
+            borderRadius: 20,
+            paddingHorizontal: 12,
+            marginRight: 8,
           }}
-          onBlur={() => setTyping(false)}
         />
-        <TouchableOpacity style={styles.sendBtn} onPress={sendMessage}>
-          <Text style={{ color: "white", fontWeight: "700" }}>Gönder</Text>
+        <TouchableOpacity
+          onPress={sendMessage}
+          style={{
+            backgroundColor: "#007AFF",
+            paddingHorizontal: 16,
+            justifyContent: "center",
+            borderRadius: 20,
+          }}
+        >
+          <Text style={{ color: "#fff", fontWeight: "600" }}>
+            Gönder
+          </Text>
         </TouchableOpacity>
       </View>
     </View>
   );
 }
-
-/* ---------------- STYLES ---------------- */
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "white" },
-  topBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: 12,
-    backgroundColor: "#f3f3f3",
-  },
-  topBtn: { fontSize: 22 },
-  topTitle: { fontSize: 18, fontWeight: "700" },
-  typingText: {
-    marginLeft: 16,
-    marginTop: 6,
-    color: "#888",
-    fontStyle: "italic",
-  },
-  msgBubble: {
-    maxWidth: "80%",
-    padding: 10,
-    marginVertical: 4,
-    borderRadius: 10,
-  },
-  myMsg: {
-    backgroundColor: "#d1ffd6",
-    alignSelf: "flex-end",
-  },
-  otherMsg: {
-    backgroundColor: "#eee",
-    alignSelf: "flex-start",
-  },
-  msgText: { fontSize: 16 },
-  seenText: {
-    fontSize: 12,
-    marginTop: 4,
-    color: "#555",
-    alignSelf: "flex-end",
-  },
-  inputArea: {
-    flexDirection: "row",
-    padding: 10,
-    borderTopWidth: 1,
-    borderColor: "#ddd",
-  },
-  input: {
-    flex: 1,
-    backgroundColor: "#f0f0f0",
-    padding: 10,
-    borderRadius: 8,
-  },
-  sendBtn: {
-    backgroundColor: "#0084ff",
-    paddingVertical: 10,
-    paddingHorizontal: 15,
-    marginLeft: 8,
-    borderRadius: 8,
-  },
-});

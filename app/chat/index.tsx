@@ -1,120 +1,76 @@
 import { useRouter } from "expo-router";
-import {
-    collection,
-    onSnapshot,
-    orderBy,
-    query,
-    where,
-} from "firebase/firestore";
-import React, { useEffect, useState } from "react";
-import {
-    FlatList,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
-} from "react-native";
-import { auth, db } from "../../firebaseConfig";
+import { useState } from "react";
+import { Text, TextInput, TouchableOpacity, View } from "react-native";
 
-type ChatItem = {
-  id: string;
-  users: string[];
-  lastMessage?: string;
-  updatedAt?: number;
-};
+function generateCode() {
+  return Math.random().toString(36).substring(2, 8).toUpperCase();
+}
 
-export default function ChatListScreen() {
+export default function ChatIndex() {
   const router = useRouter();
-  const currentUser = auth.currentUser?.uid;
-  const [chats, setChats] = useState<ChatItem[]>([]);
+  const [code, setCode] = useState("");
 
-  useEffect(() => {
-    if (!currentUser) return;
-
-    const q = query(
-      collection(db, "chats"),
-      where("users", "array-contains", currentUser),
-      orderBy("updatedAt", "desc")
-    );
-
-    const unsub = onSnapshot(q, (snap) => {
-      const list = snap.docs.map((d) => ({
-        id: d.id,
-        ...d.data(),
-      })) as ChatItem[];
-
-      setChats(list);
-    });
-
-    return unsub;
-  }, [currentUser]);
-
-  if (!currentUser) {
-    return (
-      <View style={styles.center}>
-        <Text>Giriş yapılmadı</Text>
-      </View>
-    );
-  }
+  const goChat = (c: string) => {
+    if (!c.trim()) return;
+    router.push(`/chat/${c.trim()}`);
+  };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Mesajlar</Text>
+    <View style={{ flex: 1, justifyContent: "center", padding: 24 }}>
+      <Text style={{ fontSize: 24, fontWeight: "700", marginBottom: 24 }}>
+        Özel Sohbet
+      </Text>
 
-      {chats.length === 0 ? (
-        <View style={styles.center}>
-          <Text style={{ color: "#777" }}>Henüz sohbet yok</Text>
-        </View>
-      ) : (
-        <FlatList
-          data={chats}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              style={styles.chatItem}
-              onPress={() => router.push(`./${item.id}`)}
-            >
-              <Text style={styles.chatUser}>Anon Kullanıcı</Text>
-              <Text style={styles.lastMsg} numberOfLines={1}>
-                {item.lastMessage ?? "Sohbeti aç"}
-              </Text>
-            </TouchableOpacity>
-          )}
-        />
-      )}
+      {/* KOD AL */}
+      <TouchableOpacity
+        onPress={() => {
+          const newCode = generateCode();
+          setCode(newCode);
+          goChat(newCode);
+        }}
+        style={{
+          backgroundColor: "#000",
+          padding: 14,
+          borderRadius: 10,
+          marginBottom: 20,
+        }}
+      >
+        <Text style={{ color: "#fff", textAlign: "center", fontSize: 16 }}>
+          Kod Al
+        </Text>
+      </TouchableOpacity>
+
+      <Text style={{ textAlign: "center", marginBottom: 10 }}>
+        veya kod ile gir
+      </Text>
+
+      {/* KOD İLE GİR */}
+      <TextInput
+        value={code}
+        onChangeText={setCode}
+        placeholder="Sohbet kodu gir"
+        autoCapitalize="characters"
+        style={{
+          borderWidth: 1,
+          borderColor: "#ccc",
+          borderRadius: 10,
+          padding: 12,
+          marginBottom: 12,
+        }}
+      />
+
+      <TouchableOpacity
+        onPress={() => goChat(code)}
+        style={{
+          backgroundColor: "#007AFF",
+          padding: 14,
+          borderRadius: 10,
+        }}
+      >
+        <Text style={{ color: "#fff", textAlign: "center", fontSize: 16 }}>
+          Sohbete Gir
+        </Text>
+      </TouchableOpacity>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    paddingTop: 60,
-    paddingHorizontal: 16,
-    backgroundColor: "#fff",
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: "800",
-    marginBottom: 16,
-  },
-  chatItem: {
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderColor: "#eee",
-  },
-  chatUser: {
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  lastMsg: {
-    fontSize: 14,
-    color: "#777",
-    marginTop: 4,
-  },
-  center: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-});
