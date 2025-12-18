@@ -91,32 +91,38 @@ export default function ChatRoom() {
       }
 
       const data = snap.data();
+      const allowed: string[] = data.allowed || [];
       let ownerNow = data.ownerId;
-      const allowed = data.allowed || [];
 
+      // 👑 OWNER TANIMLA
       if (!ownerNow) {
         ownerNow = deviceId;
         await updateDoc(ref, { ownerId: ownerNow });
       }
 
-      if (!allowed.includes(deviceId)) {
-        if (data.locked || data.closed) {
-          Alert.alert("Giriş Kapalı");
-          router.replace("/");
-          return;
-        }
+      // 🛑 KAPALI = HERKES ÇIKAR
+      if (data.closed) {
+        Alert.alert("Sohbet kapalı", "Bu sohbet kalıcı olarak kapatıldı");
+        router.replace("/");
+        return;
+      }
 
-        const shouldAutoLock =
-          ownerNow !== deviceId && allowed.length === 1;
+      // 🔒 KİLİT: OWNER HARİÇ KİMSE GİREMEZ
+      if (data.locked && ownerNow !== deviceId) {
+        Alert.alert("Oda kilitli", "Bu odaya yeni girişler kapalı");
+        router.replace("/");
+        return;
+      }
 
+      // ➕ ALLOWED SADECE KİLİT KAPALIYKEN
+      if (!data.locked && !allowed.includes(deviceId)) {
         await updateDoc(ref, {
           allowed: [...allowed, deviceId],
-          ...(shouldAutoLock ? { locked: true } : {}),
         });
       }
 
-      setLocked(data.locked || false);
-      setClosed(data.closed || false);
+      setLocked(!!data.locked);
+      setClosed(!!data.closed);
       setOwnerId(ownerNow);
       setReady(true);
     });
@@ -207,6 +213,7 @@ export default function ChatRoom() {
               closed: true,
               locked: true,
             });
+            router.replace("/");
           },
         },
       ]
@@ -221,7 +228,16 @@ export default function ChatRoom() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       {/* HEADER */}
-      <View style={{ padding: 12, borderBottomWidth: 1, borderColor: "#eee", flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+      <View
+        style={{
+          padding: 12,
+          borderBottomWidth: 1,
+          borderColor: "#eee",
+          flexDirection: "row",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+      >
         <View>
           <Text style={{ fontSize: 16, fontWeight: "700" }}>
             Sohbet {closed ? "🛑" : locked ? "🔒" : ""}
@@ -229,7 +245,9 @@ export default function ChatRoom() {
 
           <View style={{ flexDirection: "row", gap: 8 }}>
             <Text style={{ color: "#007AFF" }}>Kod: {chatId}</Text>
-            <TouchableOpacity onPress={() => Clipboard.setStringAsync(chatId || "")}>
+            <TouchableOpacity
+              onPress={() => Clipboard.setStringAsync(chatId || "")}
+            >
               <Text style={{ color: "#007AFF" }}>📋 Kopyala</Text>
             </TouchableOpacity>
           </View>
@@ -255,8 +273,19 @@ export default function ChatRoom() {
       </View>
 
       {(locked || closed) && (
-        <View style={{ padding: 8, backgroundColor: closed ? "#F8D7DA" : "#FFF3CD", alignItems: "center" }}>
-          <Text style={{ color: closed ? "#721C24" : "#856404", fontSize: 13 }}>
+        <View
+          style={{
+            padding: 8,
+            backgroundColor: closed ? "#F8D7DA" : "#FFF3CD",
+            alignItems: "center",
+          }}
+        >
+          <Text
+            style={{
+              color: closed ? "#721C24" : "#856404",
+              fontSize: 13,
+            }}
+          >
             {closed
               ? "🛑 Bu sohbet kalıcı olarak kapatıldı"
               : "🎟️ Davet kullanıldı — yeni giriş yok"}
@@ -274,17 +303,41 @@ export default function ChatRoom() {
           const readCount = item.readBy?.length || 0;
 
           return (
-            <View style={{ alignSelf: isMe ? "flex-end" : "flex-start", marginBottom: 8 }}>
-              <View style={{ backgroundColor: isMe ? "#007AFF" : "#E5E5EA", padding: 10, borderRadius: 14 }}>
-                <Text style={{ color: isMe ? "#fff" : "#000" }}>{item.text}</Text>
+            <View
+              style={{
+                alignSelf: isMe ? "flex-end" : "flex-start",
+                marginBottom: 8,
+              }}
+            >
+              <View
+                style={{
+                  backgroundColor: isMe ? "#007AFF" : "#E5E5EA",
+                  padding: 10,
+                  borderRadius: 14,
+                }}
+              >
+                <Text style={{ color: isMe ? "#fff" : "#000" }}>
+                  {item.text}
+                </Text>
               </View>
 
-              <View style={{ flexDirection: "row", gap: 4, alignSelf: isMe ? "flex-end" : "flex-start" }}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  gap: 4,
+                  alignSelf: isMe ? "flex-end" : "flex-start",
+                }}
+              >
                 <Text style={{ fontSize: 11, color: "#999" }}>
                   {formatTime(item.createdAt)}
                 </Text>
                 {isMe && (
-                  <Text style={{ fontSize: 12, color: readCount > 1 ? "#4FC3F7" : "#999" }}>
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      color: readCount > 1 ? "#4FC3F7" : "#999",
+                    }}
+                  >
                     {readCount > 1 ? "✓✓" : "✓"}
                   </Text>
                 )}
@@ -306,9 +359,23 @@ export default function ChatRoom() {
             value={text}
             onChangeText={handleTyping}
             placeholder="Mesaj yaz..."
-            style={{ flex: 1, borderWidth: 1, borderColor: "#ccc", borderRadius: 20, paddingHorizontal: 12 }}
+            style={{
+              flex: 1,
+              borderWidth: 1,
+              borderColor: "#ccc",
+              borderRadius: 20,
+              paddingHorizontal: 12,
+            }}
           />
-          <TouchableOpacity onPress={sendMessage} style={{ backgroundColor: "#007AFF", padding: 12, borderRadius: 20, marginLeft: 6 }}>
+          <TouchableOpacity
+            onPress={sendMessage}
+            style={{
+              backgroundColor: "#007AFF",
+              padding: 12,
+              borderRadius: 20,
+              marginLeft: 6,
+            }}
+          >
             <Text style={{ color: "#fff" }}>➤</Text>
           </TouchableOpacity>
         </View>
