@@ -61,6 +61,8 @@ export default function ChatRoom() {
   const chatId = Array.isArray(params.code) ? params.code[0] : params.code;
 
   const [deviceId, setDeviceId] = useState<string | null>(null);
+  const [ownerId, setOwnerId] = useState<string | null>(null);
+
   const [text, setText] = useState("");
   const [messages, setMessages] = useState<any[]>([]);
   const [ready, setReady] = useState(false);
@@ -68,7 +70,6 @@ export default function ChatRoom() {
 
   const [locked, setLocked] = useState(false);
   const [closed, setClosed] = useState(false);
-  const [ownerId, setOwnerId] = useState<string | null>(null);
 
   const typingTimeout = useRef<any>(null);
   const isOwner = deviceId && ownerId === deviceId;
@@ -91,39 +92,28 @@ export default function ChatRoom() {
       }
 
       const data = snap.data();
-      const allowed: string[] = data.allowed || [];
-      let ownerNow = data.ownerId;
 
-      // 👑 OWNER TANIMLA
-      if (!ownerNow) {
-        ownerNow = deviceId;
-        await updateDoc(ref, { ownerId: ownerNow });
+      if (!data.ownerId) {
+        await updateDoc(ref, { ownerId: deviceId });
+        setOwnerId(deviceId);
+      } else {
+        setOwnerId(data.ownerId);
       }
 
-      // 🛑 KAPALI = HERKES ÇIKAR
       if (data.closed) {
         Alert.alert("Sohbet kapalı", "Bu sohbet kalıcı olarak kapatıldı");
         router.replace("/");
         return;
       }
 
-      // 🔒 KİLİT: OWNER HARİÇ KİMSE GİREMEZ
-      if (data.locked && ownerNow !== deviceId) {
+      if (data.locked && data.ownerId !== deviceId) {
         Alert.alert("Oda kilitli", "Bu odaya yeni girişler kapalı");
         router.replace("/");
         return;
       }
 
-      // ➕ ALLOWED SADECE KİLİT KAPALIYKEN
-      if (!data.locked && !allowed.includes(deviceId)) {
-        await updateDoc(ref, {
-          allowed: [...allowed, deviceId],
-        });
-      }
-
       setLocked(!!data.locked);
       setClosed(!!data.closed);
-      setOwnerId(ownerNow);
       setReady(true);
     });
   }, [chatId, deviceId]);
@@ -142,7 +132,10 @@ export default function ChatRoom() {
       setMessages(list);
 
       list.forEach((msg: any) => {
-        if (msg.senderId !== deviceId && !msg.readBy?.includes(deviceId)) {
+        if (
+          msg.senderId !== deviceId &&
+          !msg.readBy?.includes(deviceId)
+        ) {
           updateDoc(doc(db, "chats", chatId, "messages", msg.id), {
             readBy: [...(msg.readBy || []), deviceId],
           });
@@ -185,10 +178,34 @@ export default function ChatRoom() {
       senderId: deviceId,
       createdAt: serverTimestamp(),
       readBy: [deviceId],
+      deleted: false, // 👈 EKLENDİ
     });
 
     await deleteDoc(doc(db, "chats", chatId, "typing", deviceId));
     setText("");
+  };
+
+  /* 🗑 HERKES İÇİN MESAJ SİL */
+  const deleteMessageForEveryone = async (msg: any) => {
+    if (msg.senderId !== deviceId) return;
+
+    Alert.alert(
+      "Mesajı Sil",
+      "Bu mesaj herkes için silinecek.",
+      [
+        { text: "İptal", style: "cancel" },
+        {
+          text: "Sil",
+          style: "destructive",
+          onPress: async () => {
+            await updateDoc(
+              doc(db, "chats", chatId!, "messages", msg.id),
+              { deleted: true }
+            );
+          },
+        },
+      ]
+    );
   };
 
   /* OWNER ACTIONS */
@@ -224,31 +241,28 @@ export default function ChatRoom() {
 
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: "#fff" }}
+      style={{ flex: 1, backgroundColor: "#0B0B0F" }}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       {/* HEADER */}
-      <View
-        style={{
-          padding: 12,
-          borderBottomWidth: 1,
-          borderColor: "#eee",
-          flexDirection: "row",
-          justifyContent: "space-between",
-          alignItems: "center",
-        }}
-      >
+      <View style={{
+        padding: 14,
+        borderBottomWidth: 1,
+        borderColor: "#1C1C22",
+        backgroundColor: "#111117",
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+      }}>
         <View>
-          <Text style={{ fontSize: 16, fontWeight: "700" }}>
+          <Text style={{ fontSize: 16, fontWeight: "700", color: "#fff" }}>
             Sohbet {closed ? "🛑" : locked ? "🔒" : ""}
           </Text>
 
           <View style={{ flexDirection: "row", gap: 8 }}>
-            <Text style={{ color: "#007AFF" }}>Kod: {chatId}</Text>
-            <TouchableOpacity
-              onPress={() => Clipboard.setStringAsync(chatId || "")}
-            >
-              <Text style={{ color: "#007AFF" }}>📋 Kopyala</Text>
+            <Text style={{ color: "#4FC3F7" }}>Kod: {chatId}</Text>
+            <TouchableOpacity onPress={() => Clipboard.setStringAsync(chatId || "")}>
+              <Text style={{ color: "#4FC3F7" }}>📋 Kopyala</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -257,41 +271,20 @@ export default function ChatRoom() {
           {isOwner && !closed && (
             <>
               <TouchableOpacity onPress={toggleLock}>
-                <Text style={{ color: "#007AFF" }}>
+                <Text style={{ color: "#4FC3F7" }}>
                   {locked ? "Kilidi Aç" : "Kilitle"}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={closeChatForever}>
-                <Text style={{ color: "#FF3B30" }}>Kapat</Text>
+                <Text style={{ color: "#FF453A" }}>Kapat</Text>
               </TouchableOpacity>
             </>
           )}
           <TouchableOpacity onPress={() => router.back()}>
-            <Text style={{ fontSize: 18 }}>✕</Text>
+            <Text style={{ fontSize: 18, color: "#fff" }}>✕</Text>
           </TouchableOpacity>
         </View>
       </View>
-
-      {(locked || closed) && (
-        <View
-          style={{
-            padding: 8,
-            backgroundColor: closed ? "#F8D7DA" : "#FFF3CD",
-            alignItems: "center",
-          }}
-        >
-          <Text
-            style={{
-              color: closed ? "#721C24" : "#856404",
-              fontSize: 13,
-            }}
-          >
-            {closed
-              ? "🛑 Bu sohbet kalıcı olarak kapatıldı"
-              : "🎟️ Davet kullanıldı — yeni giriş yok"}
-          </Text>
-        </View>
-      )}
 
       {/* MESSAGES */}
       <FlatList
@@ -303,68 +296,78 @@ export default function ChatRoom() {
           const readCount = item.readBy?.length || 0;
 
           return (
-            <View
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onLongPress={() => {
+                if (isMe && !item.deleted) {
+                  deleteMessageForEveryone(item);
+                }
+              }}
               style={{
                 alignSelf: isMe ? "flex-end" : "flex-start",
-                marginBottom: 8,
+                marginBottom: 10,
               }}
             >
               <View
                 style={{
-                  backgroundColor: isMe ? "#007AFF" : "#E5E5EA",
-                  padding: 10,
-                  borderRadius: 14,
+                  backgroundColor: isMe ? "#007AFF" : "#1C1C22",
+                  padding: 12,
+                  borderRadius: 16,
+                  maxWidth: "80%",
                 }}
               >
-                <Text style={{ color: isMe ? "#fff" : "#000" }}>
-                  {item.text}
+                <Text style={{ color: "#fff" }}>
+                  {item.deleted ? "Bu mesaj silindi" : item.text}
                 </Text>
               </View>
 
-              <View
-                style={{
-                  flexDirection: "row",
-                  gap: 4,
-                  alignSelf: isMe ? "flex-end" : "flex-start",
-                }}
-              >
-                <Text style={{ fontSize: 11, color: "#999" }}>
+              <View style={{
+                flexDirection: "row",
+                gap: 6,
+                alignSelf: isMe ? "flex-end" : "flex-start",
+              }}>
+                <Text style={{ fontSize: 11, color: "#888" }}>
                   {formatTime(item.createdAt)}
                 </Text>
                 {isMe && (
-                  <Text
-                    style={{
-                      fontSize: 12,
-                      color: readCount > 1 ? "#4FC3F7" : "#999",
-                    }}
-                  >
+                  <Text style={{
+                    fontSize: 12,
+                    color: readCount > 1 ? "#4FC3F7" : "#666",
+                  }}>
                     {readCount > 1 ? "✓✓" : "✓"}
                   </Text>
                 )}
               </View>
-            </View>
+            </TouchableOpacity>
           );
         }}
       />
 
       {someoneTyping && !closed && (
-        <Text style={{ marginLeft: 16, color: "#999" }}>
+        <Text style={{ marginLeft: 16, color: "#888" }}>
           Karşı taraf yazıyor...
         </Text>
       )}
 
       {!closed && (
-        <View style={{ flexDirection: "row", padding: 10 }}>
+        <View style={{
+          flexDirection: "row",
+          padding: 10,
+          borderTopWidth: 1,
+          borderColor: "#1C1C22",
+          backgroundColor: "#111117",
+        }}>
           <TextInput
             value={text}
             onChangeText={handleTyping}
             placeholder="Mesaj yaz..."
+            placeholderTextColor="#666"
             style={{
               flex: 1,
-              borderWidth: 1,
-              borderColor: "#ccc",
+              backgroundColor: "#1C1C22",
+              color: "#fff",
               borderRadius: 20,
-              paddingHorizontal: 12,
+              paddingHorizontal: 14,
             }}
           />
           <TouchableOpacity
