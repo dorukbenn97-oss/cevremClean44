@@ -62,17 +62,16 @@ export default function ChatRoom() {
 
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [ownerId, setOwnerId] = useState<string | null>(null);
-
   const [text, setText] = useState("");
   const [messages, setMessages] = useState<any[]>([]);
   const [ready, setReady] = useState(false);
   const [someoneTyping, setSomeoneTyping] = useState(false);
-
   const [locked, setLocked] = useState(false);
   const [closed, setClosed] = useState(false);
 
   const typingTimeout = useRef<any>(null);
   const isOwner = deviceId && ownerId === deviceId;
+  const isWeb = Platform.OS === "web";
 
   /* DEVICE */
   useEffect(() => {
@@ -182,7 +181,6 @@ export default function ChatRoom() {
     setText("");
   };
 
-  /* 🗑 HERKES İÇİN MESAJ SİL */
   const deleteMessageForEveryone = async (msg: any) => {
     if (msg.senderId !== deviceId) return;
 
@@ -201,7 +199,6 @@ export default function ChatRoom() {
     ]);
   };
 
-  /* OWNER ACTIONS */
   const toggleLock = async () => {
     if (!isOwner || closed) return;
     await updateDoc(doc(db, "chats", chatId!), { locked: !locked });
@@ -210,29 +207,25 @@ export default function ChatRoom() {
   const closeChatForever = async () => {
     if (!isOwner) return;
 
-    Alert.alert(
-      "Sohbeti Kapat",
-      "Bu sohbet kalıcı olarak kapatılacak. Geri alınamaz.",
-      [
-        { text: "İptal", style: "cancel" },
-        {
-          text: "Kapat",
-          style: "destructive",
-          onPress: async () => {
-            await updateDoc(doc(db, "chats", chatId!), {
-              closed: true,
-              locked: true,
-            });
-            router.replace("/");
-          },
+    Alert.alert("Sohbeti Kapat", "Bu sohbet kalıcı olarak kapatılacak.", [
+      { text: "İptal", style: "cancel" },
+      {
+        text: "Kapat",
+        style: "destructive",
+        onPress: async () => {
+          await updateDoc(doc(db, "chats", chatId!), {
+            closed: true,
+            locked: true,
+          });
+          router.replace("/");
         },
-      ]
-    );
+      },
+    ]);
   };
 
   if (!ready) return null;
 
-  const Content = (
+  const CONTENT = (
     <>
       {/* HEADER */}
       <View
@@ -244,6 +237,7 @@ export default function ChatRoom() {
           flexDirection: "row",
           justifyContent: "space-between",
           alignItems: "center",
+          zIndex: 10,
         }}
       >
         <View>
@@ -277,13 +271,11 @@ export default function ChatRoom() {
         </View>
       </View>
 
-      {/* MESSAGES */}
       <FlatList
         data={messages}
         keyExtractor={(i) => i.id}
-        keyboardDismissMode="none"
+        contentContainerStyle={{ padding: 16, paddingBottom: 120 }}
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ padding: 16 }}
         renderItem={({ item }) => {
           const isMe = item.senderId === deviceId;
           const readCount = item.readBy?.length || 0;
@@ -306,19 +298,10 @@ export default function ChatRoom() {
                   backgroundColor: isMe ? "#007AFF" : "#1C1C22",
                   padding: 12,
                   borderRadius: 16,
-                  maxWidth: Platform.OS === "web" ? 320 : "80%",
+                  maxWidth: "80%",
                 }}
               >
-                <Text
-                  style={{
-                    color: "#fff",
-                    fontSize: 15,
-                    lineHeight: 20,
-                    flexWrap: "wrap",
-                    fontFamily:
-                      Platform.OS === "web" ? "system-ui" : undefined,
-                  }}
-                >
+                <Text style={{ color: "#fff" }}>
                   {item.deleted ? "Bu mesaj silindi" : item.text}
                 </Text>
               </View>
@@ -363,6 +346,7 @@ export default function ChatRoom() {
             borderTopWidth: 1,
             borderColor: "#1C1C22",
             backgroundColor: "#111117",
+            ...(isWeb ? { position: "sticky", bottom: 0 } : {}),
           }}
         >
           <TextInput
@@ -376,15 +360,17 @@ export default function ChatRoom() {
               color: "#fff",
               borderRadius: 20,
               paddingHorizontal: 14,
+              height: 42,
             }}
           />
           <TouchableOpacity
             onPress={sendMessage}
             style={{
               backgroundColor: "#007AFF",
-              padding: 12,
+              paddingHorizontal: 16,
               borderRadius: 20,
               marginLeft: 6,
+              justifyContent: "center",
             }}
           >
             <Text style={{ color: "#fff" }}>➤</Text>
@@ -394,24 +380,14 @@ export default function ChatRoom() {
     </>
   );
 
-  return Platform.OS === "web" ? (
-   <View
-  style={{
-    flex: 1,
-    backgroundColor: "#0B0B0F",
-    ...(Platform.OS === "web"
-      ? ({ minHeight: "100dvh" } as any)
-      : {}),
-  }}
->
-      {Content}
-    </View>
+  return isWeb ? (
+    <View style={{ flex: 1, backgroundColor: "#0B0B0F" }}>{CONTENT}</View>
   ) : (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: "#0B0B0F" }}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      behavior="padding"
     >
-      {Content}
+      {CONTENT}
     </KeyboardAvoidingView>
   );
 }
