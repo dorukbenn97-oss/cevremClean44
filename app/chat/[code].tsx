@@ -132,10 +132,7 @@ export default function ChatRoom() {
       setMessages(list);
 
       list.forEach((msg: any) => {
-        if (
-          msg.senderId !== deviceId &&
-          !msg.readBy?.includes(deviceId)
-        ) {
+        if (msg.senderId !== deviceId && !msg.readBy?.includes(deviceId)) {
           updateDoc(doc(db, "chats", chatId, "messages", msg.id), {
             readBy: [...(msg.readBy || []), deviceId],
           });
@@ -178,7 +175,7 @@ export default function ChatRoom() {
       senderId: deviceId,
       createdAt: serverTimestamp(),
       readBy: [deviceId],
-      deleted: false, // 👈 EKLENDİ
+      deleted: false,
     });
 
     await deleteDoc(doc(db, "chats", chatId, "typing", deviceId));
@@ -189,23 +186,19 @@ export default function ChatRoom() {
   const deleteMessageForEveryone = async (msg: any) => {
     if (msg.senderId !== deviceId) return;
 
-    Alert.alert(
-      "Mesajı Sil",
-      "Bu mesaj herkes için silinecek.",
-      [
-        { text: "İptal", style: "cancel" },
-        {
-          text: "Sil",
-          style: "destructive",
-          onPress: async () => {
-            await updateDoc(
-              doc(db, "chats", chatId!, "messages", msg.id),
-              { deleted: true }
-            );
-          },
+    Alert.alert("Mesajı Sil", "Bu mesaj herkes için silinecek.", [
+      { text: "İptal", style: "cancel" },
+      {
+        text: "Sil",
+        style: "destructive",
+        onPress: async () => {
+          await updateDoc(
+            doc(db, "chats", chatId!, "messages", msg.id),
+            { deleted: true }
+          );
         },
-      ]
-    );
+      },
+    ]);
   };
 
   /* OWNER ACTIONS */
@@ -239,26 +232,24 @@ export default function ChatRoom() {
 
   if (!ready) return null;
 
-  return (
-    <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: "#0B0B0F" }}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
+  const Content = (
+    <>
       {/* HEADER */}
-      <View style={{
-        padding: 14,
-        borderBottomWidth: 1,
-        borderColor: "#1C1C22",
-        backgroundColor: "#111117",
-        flexDirection: "row",
-        justifyContent: "space-between",
-        alignItems: "center",
-      }}>
+      <View
+        style={{
+          padding: 14,
+          borderBottomWidth: 1,
+          borderColor: "#1C1C22",
+          backgroundColor: "#111117",
+          flexDirection: "row",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+      >
         <View>
           <Text style={{ fontSize: 16, fontWeight: "700", color: "#fff" }}>
             Sohbet {closed ? "🛑" : locked ? "🔒" : ""}
           </Text>
-
           <View style={{ flexDirection: "row", gap: 8 }}>
             <Text style={{ color: "#4FC3F7" }}>Kod: {chatId}</Text>
             <TouchableOpacity onPress={() => Clipboard.setStringAsync(chatId || "")}>
@@ -290,6 +281,8 @@ export default function ChatRoom() {
       <FlatList
         data={messages}
         keyExtractor={(i) => i.id}
+        keyboardDismissMode="none"
+        keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ padding: 16 }}
         renderItem={({ item }) => {
           const isMe = item.senderId === deviceId;
@@ -313,27 +306,40 @@ export default function ChatRoom() {
                   backgroundColor: isMe ? "#007AFF" : "#1C1C22",
                   padding: 12,
                   borderRadius: 16,
-                  maxWidth: "80%",
+                  maxWidth: Platform.OS === "web" ? 320 : "80%",
                 }}
               >
-                <Text style={{ color: "#fff" }}>
+                <Text
+                  style={{
+                    color: "#fff",
+                    fontSize: 15,
+                    lineHeight: 20,
+                    flexWrap: "wrap",
+                    fontFamily:
+                      Platform.OS === "web" ? "system-ui" : undefined,
+                  }}
+                >
                   {item.deleted ? "Bu mesaj silindi" : item.text}
                 </Text>
               </View>
 
-              <View style={{
-                flexDirection: "row",
-                gap: 6,
-                alignSelf: isMe ? "flex-end" : "flex-start",
-              }}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  gap: 6,
+                  alignSelf: isMe ? "flex-end" : "flex-start",
+                }}
+              >
                 <Text style={{ fontSize: 11, color: "#888" }}>
                   {formatTime(item.createdAt)}
                 </Text>
                 {isMe && (
-                  <Text style={{
-                    fontSize: 12,
-                    color: readCount > 1 ? "#4FC3F7" : "#666",
-                  }}>
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      color: readCount > 1 ? "#4FC3F7" : "#666",
+                    }}
+                  >
                     {readCount > 1 ? "✓✓" : "✓"}
                   </Text>
                 )}
@@ -350,13 +356,15 @@ export default function ChatRoom() {
       )}
 
       {!closed && (
-        <View style={{
-          flexDirection: "row",
-          padding: 10,
-          borderTopWidth: 1,
-          borderColor: "#1C1C22",
-          backgroundColor: "#111117",
-        }}>
+        <View
+          style={{
+            flexDirection: "row",
+            padding: 10,
+            borderTopWidth: 1,
+            borderColor: "#1C1C22",
+            backgroundColor: "#111117",
+          }}
+        >
           <TextInput
             value={text}
             onChangeText={handleTyping}
@@ -383,6 +391,27 @@ export default function ChatRoom() {
           </TouchableOpacity>
         </View>
       )}
+    </>
+  );
+
+  return Platform.OS === "web" ? (
+   <View
+  style={{
+    flex: 1,
+    backgroundColor: "#0B0B0F",
+    ...(Platform.OS === "web"
+      ? ({ minHeight: "100dvh" } as any)
+      : {}),
+  }}
+>
+      {Content}
+    </View>
+  ) : (
+    <KeyboardAvoidingView
+      style={{ flex: 1, backgroundColor: "#0B0B0F" }}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
+      {Content}
     </KeyboardAvoidingView>
   );
 }
