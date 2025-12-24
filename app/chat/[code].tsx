@@ -274,7 +274,7 @@ export default function ChatRoom() {
       <FlatList
         data={messages}
         keyExtractor={(i) => i.id}
-        contentContainerStyle={{ padding: 16, paddingBottom: 120 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: 140 }}
         keyboardShouldPersistTaps="handled"
         renderItem={({ item }) => {
           const isMe = item.senderId === deviceId;
@@ -346,7 +346,9 @@ export default function ChatRoom() {
             borderTopWidth: 1,
             borderColor: "#1C1C22",
             backgroundColor: "#111117",
-            ...(isWeb ? { position: "sticky", bottom: 0 } : {}),
+            ...(isWeb
+              ? { position: "fixed", bottom: 0, left: 0, right: 0 }
+              : {}),
           }}
         >
           <TextInput
