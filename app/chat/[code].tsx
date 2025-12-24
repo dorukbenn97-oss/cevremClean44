@@ -26,7 +26,9 @@ import {
 } from "react-native";
 import { db } from "../../firebaseConfig";
 
-/* 🆔 DEVICE ID */
+/* =========================
+   DEVICE ID (WEB + MOBILE)
+========================= */
 async function getDeviceId(): Promise<string> {
   if (Platform.OS === "web") {
     let id = localStorage.getItem("deviceId");
@@ -45,7 +47,9 @@ async function getDeviceId(): Promise<string> {
   return id;
 }
 
-/* 🕒 TIME */
+/* =========================
+   TIME FORMAT
+========================= */
 function formatTime(ts: any) {
   if (!ts?.seconds) return "";
   const d = new Date(ts.seconds * 1000);
@@ -62,23 +66,30 @@ export default function ChatRoom() {
 
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [ownerId, setOwnerId] = useState<string | null>(null);
+
   const [text, setText] = useState("");
   const [messages, setMessages] = useState<any[]>([]);
   const [ready, setReady] = useState(false);
   const [someoneTyping, setSomeoneTyping] = useState(false);
+
   const [locked, setLocked] = useState(false);
   const [closed, setClosed] = useState(false);
 
   const typingTimeout = useRef<any>(null);
-  const isOwner = deviceId && ownerId === deviceId;
-  const isWeb = Platform.OS === "web";
+  const inputRef = useRef<TextInput>(null);
 
-  /* DEVICE */
+  const isOwner = deviceId && ownerId === deviceId;
+
+  /* =========================
+     DEVICE INIT
+  ========================= */
   useEffect(() => {
     getDeviceId().then(setDeviceId);
   }, []);
 
-  /* CHAT META */
+  /* =========================
+     CHAT META
+  ========================= */
   useEffect(() => {
     if (!chatId || !deviceId) return;
     const ref = doc(db, "chats", chatId);
@@ -117,7 +128,9 @@ export default function ChatRoom() {
     });
   }, [chatId, deviceId]);
 
-  /* MESSAGES */
+  /* =========================
+     MESSAGES
+  ========================= */
   useEffect(() => {
     if (!ready || !chatId || !deviceId) return;
 
@@ -140,7 +153,9 @@ export default function ChatRoom() {
     });
   }, [ready, chatId, deviceId]);
 
-  /* TYPING */
+  /* =========================
+     TYPING
+  ========================= */
   useEffect(() => {
     if (!ready || !chatId || !deviceId || closed) return;
     return onSnapshot(collection(db, "chats", chatId, "typing"), (snap) => {
@@ -179,8 +194,17 @@ export default function ChatRoom() {
 
     await deleteDoc(doc(db, "chats", chatId, "typing", deviceId));
     setText("");
+
+    // WEB SAFARI: input reset + blur/focus fix
+    if (Platform.OS === "web") {
+      inputRef.current?.blur();
+      setTimeout(() => inputRef.current?.focus(), 50);
+    }
   };
 
+  /* =========================
+     DELETE MESSAGE (OWNER)
+  ========================= */
   const deleteMessageForEveryone = async (msg: any) => {
     if (msg.senderId !== deviceId) return;
 
@@ -199,6 +223,9 @@ export default function ChatRoom() {
     ]);
   };
 
+  /* =========================
+     OWNER ACTIONS
+  ========================= */
   const toggleLock = async () => {
     if (!isOwner || closed) return;
     await updateDoc(doc(db, "chats", chatId!), { locked: !locked });
@@ -207,39 +234,44 @@ export default function ChatRoom() {
   const closeChatForever = async () => {
     if (!isOwner) return;
 
-    Alert.alert("Sohbeti Kapat", "Bu sohbet kalıcı olarak kapatılacak.", [
-      { text: "İptal", style: "cancel" },
-      {
-        text: "Kapat",
-        style: "destructive",
-        onPress: async () => {
-          await updateDoc(doc(db, "chats", chatId!), {
-            closed: true,
-            locked: true,
-          });
-          router.replace("/");
+    Alert.alert(
+      "Sohbeti Kapat",
+      "Bu sohbet kalıcı olarak kapatılacak.",
+      [
+        { text: "İptal", style: "cancel" },
+        {
+          text: "Kapat",
+          style: "destructive",
+          onPress: async () => {
+            await updateDoc(doc(db, "chats", chatId!), {
+              closed: true,
+              locked: true,
+            });
+            router.replace("/");
+          },
         },
-      },
-    ]);
+      ]
+    );
   };
 
   if (!ready) return null;
 
-  const CONTENT = (
-    <>
+  return (
+    <KeyboardAvoidingView
+      style={{ flex: 1, backgroundColor: "#0B0B0F" }}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      keyboardVerticalOffset={Platform.OS === "web" ? 0 : 60}
+    >
       {/* HEADER */}
-      <View
-        style={{
-          padding: 14,
-          borderBottomWidth: 1,
-          borderColor: "#1C1C22",
-          backgroundColor: "#111117",
-          flexDirection: "row",
-          justifyContent: "space-between",
-          alignItems: "center",
-          zIndex: 10,
-        }}
-      >
+      <View style={{
+        padding: 14,
+        borderBottomWidth: 1,
+        borderColor: "#1C1C22",
+        backgroundColor: "#111117",
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+      }}>
         <View>
           <Text style={{ fontSize: 16, fontWeight: "700", color: "#fff" }}>
             Sohbet {closed ? "🛑" : locked ? "🔒" : ""}
@@ -271,11 +303,11 @@ export default function ChatRoom() {
         </View>
       </View>
 
+      {/* MESSAGES */}
       <FlatList
         data={messages}
         keyExtractor={(i) => i.id}
-        contentContainerStyle={{ padding: 16, paddingBottom: 140 }}
-        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={{ padding: 16, paddingBottom: 80 }}
         renderItem={({ item }) => {
           const isMe = item.senderId === deviceId;
           const readCount = item.readBy?.length || 0;
@@ -284,9 +316,7 @@ export default function ChatRoom() {
             <TouchableOpacity
               activeOpacity={0.8}
               onLongPress={() => {
-                if (isMe && !item.deleted) {
-                  deleteMessageForEveryone(item);
-                }
+                if (isMe && !item.deleted) deleteMessageForEveryone(item);
               }}
               style={{
                 alignSelf: isMe ? "flex-end" : "flex-start",
@@ -306,23 +336,19 @@ export default function ChatRoom() {
                 </Text>
               </View>
 
-              <View
-                style={{
-                  flexDirection: "row",
-                  gap: 6,
-                  alignSelf: isMe ? "flex-end" : "flex-start",
-                }}
-              >
+              <View style={{
+                flexDirection: "row",
+                gap: 6,
+                alignSelf: isMe ? "flex-end" : "flex-start",
+              }}>
                 <Text style={{ fontSize: 11, color: "#888" }}>
                   {formatTime(item.createdAt)}
                 </Text>
                 {isMe && (
-                  <Text
-                    style={{
-                      fontSize: 12,
-                      color: readCount > 1 ? "#4FC3F7" : "#666",
-                    }}
-                  >
+                  <Text style={{
+                    fontSize: 12,
+                    color: readCount > 1 ? "#4FC3F7" : "#666",
+                  }}>
                     {readCount > 1 ? "✓✓" : "✓"}
                   </Text>
                 )}
@@ -338,20 +364,17 @@ export default function ChatRoom() {
         </Text>
       )}
 
+      {/* INPUT */}
       {!closed && (
-        <View
-          style={{
-            flexDirection: "row",
-            padding: 10,
-            borderTopWidth: 1,
-            borderColor: "#1C1C22",
-            backgroundColor: "#111117",
-            ...(isWeb
-              ? { position: "fixed", bottom: 0, left: 0, right: 0 }
-              : {}),
-          }}
-        >
+        <View style={{
+          flexDirection: "row",
+          padding: 10,
+          borderTopWidth: 1,
+          borderColor: "#1C1C22",
+          backgroundColor: "#111117",
+        }}>
           <TextInput
+            ref={inputRef}
             value={text}
             onChangeText={handleTyping}
             placeholder="Mesaj yaz..."
@@ -362,34 +385,22 @@ export default function ChatRoom() {
               color: "#fff",
               borderRadius: 20,
               paddingHorizontal: 14,
-              height: 42,
+              paddingVertical: 10,
             }}
           />
           <TouchableOpacity
             onPress={sendMessage}
             style={{
               backgroundColor: "#007AFF",
-              paddingHorizontal: 16,
+              padding: 12,
               borderRadius: 20,
               marginLeft: 6,
-              justifyContent: "center",
             }}
           >
             <Text style={{ color: "#fff" }}>➤</Text>
           </TouchableOpacity>
         </View>
       )}
-    </>
-  );
-
-  return isWeb ? (
-    <View style={{ flex: 1, backgroundColor: "#0B0B0F" }}>{CONTENT}</View>
-  ) : (
-    <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: "#0B0B0F" }}
-      behavior="padding"
-    >
-      {CONTENT}
     </KeyboardAvoidingView>
   );
 }
