@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, viewport-fit=cover"
+  />
+  <title>Web Chat</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: #000;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      overscroll-behavior: none;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      padding: 12px;
+      text-align: center;
+      font-weight: 600;
+      border-bottom: 1px solid #222;
+      flex-shrink: 0;
+      background: #000;
+    }
+
+    /* 📩 MESSAGES */
+    #messages {
+      flex: 1;
+      padding: 12px;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .msg {
+      max-width: 80%;
+      padding: 10px 14px;
+      border-radius: 14px;
+      background: #1c1c1e;
+      line-height: 1.35;
+      word-break: break-word;
+      align-self: flex-start;
+    }
+
+    /* 🟢 WhatsApp gibi karşıdan */
+    .msg.other {
+      background: #1c1c1e;
+      border-bottom-left-radius: 4px;
+    }
+
+    /* 🔵 WhatsApp gibi senden */
+    .msg.me {
+      background: #0a84ff;
+      color: #fff;
+      align-self: flex-end;
+      border-bottom-right-radius: 4px;
+    }
+
+    /* ⌨️ FOOTER */
+    footer {
+      position: sticky;
+      bottom: 0;
+      display: flex;
+      gap: 8px;
+      padding: 10px;
+      background: #000;
+      border-top: 1px solid #222;
+      padding-bottom: calc(10px + env(safe-area-inset-bottom));
+      flex-shrink: 0;
+    }
+
+    input {
+      flex: 1;
+      padding: 12px 14px;
+      font-size: 16px;
+      border-radius: 22px;
+      border: none;
+      outline: none;
+    }
+
+    button {
+      padding: 0 18px;
+      border-radius: 22px;
+      border: none;
+      background: #0a84ff;
+      color: #fff;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+  </style>
+</head>
+
+<body>
+  <header>Chat Ekranı ✅</header>
+
+  <div id="messages"></div>
+
+  <footer>
+    <input id="text" placeholder="Mesaj yaz..." />
+    <button id="send" type="button">Gönder</button>
+  </footer>
+
+  <!-- 🔥 Firebase -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+    import {
+      getFirestore,
+      collection,
+      addDoc,
+      query,
+      orderBy,
+      onSnapshot,
+      serverTimestamp
+    } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyCrjrp17W88jJgcz6rAU5CDV2TJdRApwJI",
+      authDomain: "cleanapp-f2720.firebaseapp.com",
+      projectId: "cleanapp-f2720",
+      storageBucket: "cleanapp-f2720.firebasestorage.app",
+      messagingSenderId: "646677343584",
+      appId: "1:646677343584:web:456bee25be8db2a16cee05",
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    try {
+      await signInAnonymously(auth);
+    } catch {}
+
+    const messagesDiv = document.getElementById("messages");
+    const input = document.getElementById("text");
+    const sendBtn = document.getElementById("send");
+
+    // 🆔 Basit device id (ben/sen ayrımı için)
+    let myId = localStorage.getItem("myId");
+    if (!myId) {
+      myId = Math.random().toString(36).slice(2);
+      localStorage.setItem("myId", myId);
+    }
+
+    const q = query(
+      collection(db, "webMessages"),
+      orderBy("createdAt")
+    );
+
+    onSnapshot(q, (snap) => {
+      messagesDiv.innerHTML = "";
+      snap.forEach((doc) => {
+        const data = doc.data();
+        const d = document.createElement("div");
+        d.className = "msg " + (data.sender === myId ? "me" : "other");
+        d.textContent = data.text;
+        messagesDiv.appendChild(d);
+      });
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    });
+
+    sendBtn.addEventListener("click", sendMessage);
+    sendBtn.addEventListener("touchstart", (e) => {
+      e.preventDefault();
+      sendMessage();
+    });
+
+    async function sendMessage() {
+      const text = input.value.trim();
+      if (!text) return;
+
+      await addDoc(collection(db, "webMessages"), {
+        text,
+        sender: myId,
+        createdAt: serverTimestamp(),
+      });
+
+      input.value = "";
+      input.focus();
+    }
+  </script>
+</body>
+</html>
