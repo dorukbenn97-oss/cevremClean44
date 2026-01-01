@@ -36,14 +36,24 @@ export default function Index() {
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
 
-  /* 🔥 PULSE */
-  const pulse = useRef(new Animated.Value(1)).current;
+  /* 🔥 PULSE ANIMATIONS */
+  const pulseTop = useRef(new Animated.Value(1)).current; // sadece alt yazı için
+  const pulseBottom = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
+    // Alt yazı hafif canlı / ışıklı zıplama
     Animated.loop(
       Animated.sequence([
-        Animated.timing(pulse, { toValue: 1.04, duration: 1400, useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 1, duration: 1400, useNativeDriver: true }),
+        Animated.timing(pulseTop, { toValue: 1.1, duration: 800, useNativeDriver: true }),
+        Animated.timing(pulseTop, { toValue: 1, duration: 800, useNativeDriver: true }),
+      ])
+    ).start();
+
+    // Alt listedeki yazı hafif zıplama
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseBottom, { toValue: 1.05, duration: 1200, useNativeDriver: true }),
+        Animated.timing(pulseBottom, { toValue: 1, duration: 1200, useNativeDriver: true }),
       ])
     ).start();
   }, []);
@@ -131,11 +141,13 @@ export default function Index() {
     <View style={{ flex: 1, backgroundColor: "#0B0B0F", padding: 24 }}>
       {/* HERO */}
       <View style={{ alignItems: "center", marginBottom: 30 }}>
-        <Animated.Text style={{ fontSize: 50, transform: [{ scale: pulse }] }}>🕶️</Animated.Text>
-        <Text style={{ fontSize: 26, fontWeight: "800", color: "#fff" }}>Gizli Odaların</Text>
-        <Text style={{ color: "#8A8A8F", fontSize: 14 }}>
-          Sadece davetlilerin girebildiği sohbetler
+        <Text style={{ fontSize: 50 }}>🕶️</Text>
+        <Text style={{ fontSize: 26, fontWeight: "800", color: "#fff" }}>
+          Gizli Odaların
         </Text>
+        <Animated.Text style={{ color: "#8A8A8F", fontSize: 14, transform: [{ scale: pulseTop }] }}>
+          Sadece davetlilerin girebildiği sohbetler
+        </Animated.Text>
       </View>
 
       {/* TOP BAR (SEÇİM MODU) */}
@@ -154,6 +166,10 @@ export default function Index() {
       <TouchableOpacity onPress={createChatAndGo} style={{
         backgroundColor: "#16161D", padding: 16, borderRadius: 14, marginBottom: 16,
         borderWidth: 1, borderColor: "#2C2C35",
+        shadowColor: "#007AFF",
+        shadowOpacity: 0.8,
+        shadowRadius: 8,
+        shadowOffset: { width: 0, height: 2 },
       }}>
         <Text style={{ color: "#fff", textAlign: "center", fontSize: 17, fontWeight: "700" }}>
           🔐 Gizli Oda Oluştur
@@ -190,9 +206,9 @@ export default function Index() {
       {visibleChats.length > 0 && (
         <>
           <Text style={{ fontSize: 18, fontWeight: "700", color: "#fff" }}>Gizli Odaların</Text>
-          <Text style={{ color: "#8A8A8F", fontSize: 12, marginBottom: 10 }}>
+          <Animated.Text style={{ color: "#8A8A8F", fontSize: 12, marginBottom: 10, transform: [{ scale: pulseBottom }] }}>
             Sadece senin gördüklerin
-          </Text>
+          </Animated.Text>
 
           <FlatList
             data={visibleChats}
