@@ -6,6 +6,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   onSnapshot,
   orderBy,
   query,
@@ -57,7 +58,6 @@ async function getStoredNick(key: string): Promise<string | null> {
   if (Platform.OS === "web") return localStorage.getItem(key);
   return await AsyncStorage.getItem(key);
 }
-
 async function setStoredNick(key: string, value: string) {
   if (Platform.OS === "web") localStorage.setItem(key, value);
   else await AsyncStorage.setItem(key, value);
@@ -71,7 +71,7 @@ export default function ChatRoom() {
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [ownerId, setOwnerId] = useState<string | null>(null);
 
-  const [nick, setNick] = useState<string>("");
+  const [nick, setNick] = useState("");
   const [text, setText] = useState("");
   const [messages, setMessages] = useState<any[]>([]);
   const [ready, setReady] = useState(false);
@@ -82,6 +82,7 @@ export default function ChatRoom() {
   const [closed, setClosed] = useState(false);
 
   const [usersInRoom, setUsersInRoom] = useState<{ id: string; nick: string }[]>([]);
+  const [blockedIds, setBlockedIds] = useState<string[]>([]);
 
   const typingTimeout = useRef<any>(null);
   const isOwner = deviceId && ownerId === deviceId;
@@ -91,17 +92,41 @@ export default function ChatRoom() {
     getDeviceId().then(setDeviceId);
   }, []);
 
-  /* CHAT META */
+  /* CHAT META + 🔒 GİRİŞ KONTROLÜ */
   useEffect(() => {
     if (!chatId || !deviceId) return;
-    const ref = doc(db, "chats", chatId);
 
-    return onSnapshot(ref, async (snap) => {
+    const ref = doc(db, "chats", chatId);
+    const usersRef = collection(db, "chats", chatId, "users");
+    const userDoc = doc(usersRef, deviceId);
+
+    // 🔒 SADECE İLK GİRİŞTE: kilitliyse ve içeride değilse -> GİRİŞ YOK
+    (async () => {
+      const snap = await getDoc(ref);
       if (!snap.exists()) {
         Alert.alert("Geçersiz Kod");
         router.replace("/");
         return;
       }
+      const data = snap.data();
+      if (data.closed) {
+        Alert.alert("Sohbet kapalı", "Bu sohbet kalıcı olarak kapatıldı");
+        router.replace("/");
+        return;
+      }
+      if (data.locked) {
+        const meInside = await getDoc(userDoc);
+        if (!meInside.exists()) {
+          Alert.alert("Oda Kilitli", "Bu oda kilitli olduğu için giriş yapılamaz.");
+          router.replace("/");
+          return;
+        }
+      }
+    })();
+
+    // 🔁 Normal snapshot (MESAJLARI / TYPING / USERS bozmaz)
+    return onSnapshot(ref, async (snap) => {
+      if (!snap.exists()) return;
 
       const data = snap.data();
 
@@ -110,18 +135,6 @@ export default function ChatRoom() {
         setOwnerId(deviceId);
       } else {
         setOwnerId(data.ownerId);
-      }
-
-      if (data.closed) {
-        Alert.alert("Sohbet kapalı", "Bu sohbet kalıcı olarak kapatıldı");
-        router.replace("/");
-        return;
-      }
-
-      if (data.locked && data.ownerId !== deviceId) {
-        Alert.alert("Oda kilitli", "Bu odaya yeni girişler kapalı");
-        router.replace("/");
-        return;
       }
 
       setLocked(!!data.locked);
@@ -193,9 +206,11 @@ export default function ChatRoom() {
   useEffect(() => {
     if (!ready || !chatId || !deviceId || closed) return;
     return onSnapshot(collection(db, "chats", chatId, "typing"), (snap) => {
-      setSomeoneTyping(snap.docs.some((d) => d.id !== deviceId));
+      setSomeoneTyping(
+        snap.docs.some((d) => d.id !== deviceId && !blockedIds.includes(d.id))
+      );
     });
-  }, [ready, chatId, deviceId, closed]);
+  }, [ready, chatId, deviceId, closed, blockedIds]);
 
   const handleTyping = async (v: string) => {
     if (!chatId || !deviceId || closed) return;
@@ -234,23 +249,19 @@ export default function ChatRoom() {
   const deleteMessageForEveryone = async (msg: any) => {
     if (msg.senderId !== deviceId) return;
 
-    Alert.alert(
-      "Mesajı Sil",
-      "Bu mesaj herkes için silinecek.",
-      [
-        { text: "İptal", style: "cancel" },
-        {
-          text: "Sil",
-          style: "destructive",
-          onPress: async () => {
-            await updateDoc(doc(db, "chats", chatId!, "messages", msg.id), {
-              deleted: true,
-              text: "",
-            });
-          },
+    Alert.alert("Mesajı Sil", "Bu mesaj herkes için silinecek.", [
+      { text: "İptal", style: "cancel" },
+      {
+        text: "Sil",
+        style: "destructive",
+        onPress: async () => {
+          await updateDoc(doc(db, "chats", chatId!, "messages", msg.id), {
+            deleted: true,
+            text: "",
+          });
         },
-      ]
-    );
+      },
+    ]);
   };
 
   const toggleLock = async () => {
@@ -261,24 +272,33 @@ export default function ChatRoom() {
   const closeChatForever = async () => {
     if (!isOwner) return;
 
-    Alert.alert(
-      "Sohbeti Kapat",
-      "Bu sohbet kalıcı olarak kapatılacak. Geri alınamaz.",
-      [
-        { text: "İptal", style: "cancel" },
-        {
-          text: "Kapat",
-          style: "destructive",
-          onPress: async () => {
-            await updateDoc(doc(db, "chats", chatId!), {
-              closed: true,
-              locked: true,
-            });
-            router.replace("/");
-          },
+    Alert.alert("Sohbeti Kapat", "Bu sohbet kalıcı olarak kapatılacak. Geri alınamaz.", [
+      { text: "İptal", style: "cancel" },
+      {
+        text: "Kapat",
+        style: "destructive",
+        onPress: async () => {
+          await updateDoc(doc(db, "chats", chatId!), {
+            closed: true,
+            locked: true,
+          });
+          router.replace("/");
         },
-      ]
-    );
+      },
+    ]);
+  };
+
+  /* 🚩 REPORT */
+  const reportUser = async (msg: any) => {
+    await addDoc(collection(db, "reports"), {
+      chatId,
+      reportedUser: msg.senderId,
+      reportedNick: msg.nick,
+      message: msg.text,
+      reporter: deviceId,
+      createdAt: serverTimestamp(),
+    });
+    Alert.alert("Teşekkürler", "Bildiriminiz için teşekkür ederiz.");
   };
 
   if (!ready) return null;
@@ -287,7 +307,7 @@ export default function ChatRoom() {
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: "#0B0B0F" }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       {/* Nick Modal */}
       <Modal visible={nickModalVisible} transparent animationType="fade">
-        <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: '#00000099' }}>
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#00000099" }}>
           <View style={{ backgroundColor: "#111", padding: 20, borderRadius: 10, width: "80%" }}>
             <Text style={{ color: "#fff", marginBottom: 10 }}>Nick giriniz:</Text>
             <TextInput
@@ -329,11 +349,17 @@ export default function ChatRoom() {
         <View style={{ flexDirection: "row", gap: 14 }}>
           {isOwner && !closed && (
             <>
-              <TouchableOpacity onPress={toggleLock}><Text style={{ color: "#4FC3F7" }}>{locked ? "Kilidi Aç" : "Kilitle"}</Text></TouchableOpacity>
-              <TouchableOpacity onPress={closeChatForever}><Text style={{ color: "#FF453A" }}>Kapat</Text></TouchableOpacity>
+              <TouchableOpacity onPress={toggleLock}>
+                <Text style={{ color: "#4FC3F7" }}>{locked ? "Kilidi Aç" : "Kilitle"}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={closeChatForever}>
+                <Text style={{ color: "#FF453A" }}>Kapat</Text>
+              </TouchableOpacity>
             </>
           )}
-          <TouchableOpacity onPress={() => router.back()}><Text style={{ fontSize: 18, color: "#fff" }}>✕</Text></TouchableOpacity>
+          <TouchableOpacity onPress={() => router.back()}>
+            <Text style={{ fontSize: 18, color: "#fff" }}>✕</Text>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -346,34 +372,55 @@ export default function ChatRoom() {
           const isMe = item.senderId === deviceId;
           const readCount = item.readBy?.length || 0;
 
+          if (!isMe && blockedIds.includes(item.senderId)) return null;
+
           return (
             <View style={{ alignSelf: isMe ? "flex-end" : "flex-start", marginBottom: 12 }}>
-              {/* Nick bağımsız */}
               <TouchableOpacity
-                onPress={() => {
-                  Alert.prompt(
-                    "Nick Değiştir",
-                    "Yeni nick giriniz:",
-                    [
-                      { text: "İptal", style: "cancel" },
-                      { text: "Kaydet", onPress: async (newNick: string | undefined) => {
-                        if (!newNick?.trim()) return;
-                        setNick(newNick.trim());
-                        await setStoredNick(`nick-${chatId}-${deviceId}`, newNick.trim());
-                      }}
-                    ],
-                    "plain-text",
-                    item.nick
-                  );
+  onPress={() => {
+    if (item.senderId !== deviceId) return; // 🔑 SADECE KENDİN
+    Alert.prompt(
+      "Nick Değiştir",
+      "Yeni nick giriniz:",
+      [
+        { text: "İptal", style: "cancel" },
+        {
+          text: "Kaydet",
+          onPress: async (newNick: string | undefined) => {
+            if (!newNick?.trim()) return;
+            setNick(newNick.trim());
+            await setStoredNick(`nick-${chatId}-${deviceId}`, newNick.trim());
+          },
+        },
+      ],
+      "plain-text",
+      item.nick
+    );
+  }}
+
+                onLongPress={() => {
+                  if (item.senderId === deviceId) return;
+                  Alert.alert("Seçenekler", "", [
+                    {
+                      text: "Engelle",
+                      onPress: () =>
+                        setBlockedIds((prev) =>
+                          prev.includes(item.senderId) ? prev : [...prev, item.senderId]
+                        ),
+                    },
+                    { text: "Şikayet Et", onPress: () => reportUser(item) },
+                    { text: "İptal", style: "cancel" },
+                  ]);
                 }}
               >
                 <Text style={{ color: "#4FC3F7", fontWeight: "700", marginBottom: 4 }}>{item.nick}</Text>
               </TouchableOpacity>
 
-              {/* Mesaj balonu */}
               <TouchableOpacity
                 activeOpacity={0.8}
-                onLongPress={() => { if (isMe) deleteMessageForEveryone(item); }}
+                onLongPress={() => {
+                  if (isMe) deleteMessageForEveryone(item);
+                }}
                 style={{ backgroundColor: isMe ? "#007AFF" : "#1C1C22", padding: 12, borderRadius: 16, maxWidth: "80%" }}
               >
                 <Text style={{ color: "#fff" }}>{item.text || "Bu mesaj silindi"}</Text>
@@ -392,8 +439,16 @@ export default function ChatRoom() {
 
       {!closed && (
         <View style={{ flexDirection: "row", padding: 10, borderTopWidth: 1, borderColor: "#1C1C22", backgroundColor: "#111117" }}>
-          <TextInput value={text} onChangeText={handleTyping} placeholder="Mesaj yaz..." placeholderTextColor="#666" style={{ flex: 1, backgroundColor: "#1C1C22", color: "#fff", borderRadius: 20, paddingHorizontal: 14 }} />
-          <TouchableOpacity onPress={sendMessage} style={{ backgroundColor: "#007AFF", padding: 12, borderRadius: 20, marginLeft: 6 }}><Text style={{ color: "#fff" }}>➤</Text></TouchableOpacity>
+          <TextInput
+            value={text}
+            onChangeText={handleTyping}
+            placeholder="Mesaj yaz..."
+            placeholderTextColor="#666"
+            style={{ flex: 1, backgroundColor: "#1C1C22", color: "#fff", borderRadius: 20, paddingHorizontal: 14 }}
+          />
+          <TouchableOpacity onPress={sendMessage} style={{ backgroundColor: "#007AFF", padding: 12, borderRadius: 20, marginLeft: 6 }}>
+            <Text style={{ color: "#fff" }}>➤</Text>
+          </TouchableOpacity>
         </View>
       )}
     </KeyboardAvoidingView>
