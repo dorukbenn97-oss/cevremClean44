@@ -1,9 +1,5 @@
 import { getApp, getApps, initializeApp } from "firebase/app";
-import {
-  getAuth,
-  onAuthStateChanged,
-  signInAnonymously,
-} from "firebase/auth";
+import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
@@ -18,29 +14,11 @@ const firebaseConfig = {
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
+/**
+ * 🔥 SADECE SERVİS EXPORT
+ * ❌ onAuthStateChanged YOK
+ * ❌ signInAnonymously YOK
+ */
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
-
-/* 🔐 OTOMATİK ANON AUTH (LAYOUT YOK) */
-let authReady = false;
-
-onAuthStateChanged(auth, (user) => {
-  if (!user) {
-    signInAnonymously(auth).catch(console.error);
-  } else {
-    authReady = true;
-  }
-});
-
-export const waitForAuth = () =>
-  new Promise<void>((resolve) => {
-    if (authReady) return resolve();
-    const unsub = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        authReady = true;
-        unsub();
-        resolve();
-      }
-    });
-  });

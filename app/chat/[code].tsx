@@ -6,17 +6,18 @@ import {
   collection,
   deleteDoc,
   doc,
-  getDoc,
+  getDoc, // ✅ EKLENDİ
   onSnapshot,
   orderBy,
   query,
   serverTimestamp,
   setDoc,
-  updateDoc,
+  updateDoc
 } from "firebase/firestore";
 import { useEffect, useRef, useState } from "react";
 import {
   Alert,
+  Animated,
   FlatList,
   KeyboardAvoidingView,
   Modal,
@@ -26,7 +27,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { db } from "../../firebaseConfig";
+import { auth, db } from "../../firebaseConfig";
 
 /* 🆔 DEVICE ID */
 async function getDeviceId(): Promise<string> {
@@ -50,10 +51,13 @@ async function getDeviceId(): Promise<string> {
 function formatTime(ts: any) {
   if (!ts?.seconds) return "";
   const d = new Date(ts.seconds * 1000);
-  return d.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleTimeString("tr-TR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
-/* STORAGE HELPER */
+/* STORAGE */
 async function getStoredNick(key: string): Promise<string | null> {
   if (Platform.OS === "web") return localStorage.getItem(key);
   return await AsyncStorage.getItem(key);
@@ -64,6 +68,24 @@ async function setStoredNick(key: string, value: string) {
 }
 
 export default function ChatRoom() {
+  const pulseTop = useRef(new Animated.Value(1)).current;
+
+useEffect(() => {
+  Animated.loop(
+    Animated.sequence([
+      Animated.timing(pulseTop, {
+        toValue: 1.08,
+        duration: 900,
+        useNativeDriver: true,
+      }),
+      Animated.timing(pulseTop, {
+        toValue: 1,
+        duration: 900,
+        useNativeDriver: true,
+      }),
+    ])
+  ).start();
+}, []);
   const router = useRouter();
   const params = useLocalSearchParams<{ code?: string | string[] }>();
   const chatId = Array.isArray(params.code) ? params.code[0] : params.code;
@@ -81,18 +103,23 @@ export default function ChatRoom() {
   const [locked, setLocked] = useState(false);
   const [closed, setClosed] = useState(false);
 
-  const [usersInRoom, setUsersInRoom] = useState<{ id: string; nick: string }[]>([]);
+  const [usersInRoom, setUsersInRoom] = useState<
+    { id: string; nick: string }[]
+  >([]);
   const [blockedIds, setBlockedIds] = useState<string[]>([]);
 
   const typingTimeout = useRef<any>(null);
-  const isOwner = deviceId && ownerId === deviceId;
+
+  /* ✅ FIX: OWNER ARTIK AUTH UID */
+  const isOwner =
+    !!auth.currentUser && !!ownerId && ownerId === auth.currentUser.uid;
 
   /* DEVICE */
   useEffect(() => {
     getDeviceId().then(setDeviceId);
   }, []);
 
-  /* CHAT META + 🔒 GİRİŞ KONTROLÜ */
+  /* CHAT META + GİRİŞ KONTROLÜ */
   useEffect(() => {
     if (!chatId || !deviceId) return;
 
@@ -100,7 +127,6 @@ export default function ChatRoom() {
     const usersRef = collection(db, "chats", chatId, "users");
     const userDoc = doc(usersRef, deviceId);
 
-    // 🔒 SADECE İLK GİRİŞTE: kilitliyse ve içeride değilse -> GİRİŞ YOK
     (async () => {
       const snap = await getDoc(ref);
       if (!snap.exists()) {
@@ -109,11 +135,13 @@ export default function ChatRoom() {
         return;
       }
       const data = snap.data();
+
       if (data.closed) {
         Alert.alert("Sohbet kapalı", "Bu sohbet kalıcı olarak kapatıldı");
         router.replace("/");
         return;
       }
+
       if (data.locked) {
         const meInside = await getDoc(userDoc);
         if (!meInside.exists()) {
@@ -122,21 +150,15 @@ export default function ChatRoom() {
           return;
         }
       }
+      
     })();
 
-    // 🔁 Normal snapshot (MESAJLARI / TYPING / USERS bozmaz)
     return onSnapshot(ref, async (snap) => {
       if (!snap.exists()) return;
-
       const data = snap.data();
 
-      if (!data.ownerId) {
-        await updateDoc(ref, { ownerId: deviceId });
-        setOwnerId(deviceId);
-      } else {
-        setOwnerId(data.ownerId);
-      }
-
+      // 🔑 ownerId artık UID olarak okunur (YAZILMAZ!)
+      setOwnerId(data.ownerId || null);
       setLocked(!!data.locked);
       setClosed(!!data.closed);
       setReady(true);
@@ -163,12 +185,20 @@ export default function ChatRoom() {
           const last = d.data().lastActive?.toMillis?.() || 0;
           return now - last < 30000;
         })
-        .map((d) => ({ id: d.id, nick: d.data().nick || `Anon-${d.id.substring(0, 4)}` }));
+        .map((d) => ({
+          id: d.id,
+          nick: d.data().nick || `Anon-${d.id.substring(0, 4)}`,
+        }));
       setUsersInRoom(activeUsers);
     });
 
     const interval = setInterval(() => {
-      if (nick) setDoc(userDoc, { nick, lastActive: serverTimestamp() }, { merge: true }).catch(() => {});
+      if (nick)
+        setDoc(
+          userDoc,
+          { nick, lastActive: serverTimestamp() },
+          { merge: true }
+        ).catch(() => {});
     }, 10000);
 
     return () => {
@@ -182,7 +212,10 @@ export default function ChatRoom() {
   useEffect(() => {
     if (!ready || !chatId || !deviceId) return;
 
-    const q = query(collection(db, "chats", chatId, "messages"), orderBy("createdAt", "asc"));
+    const q = query(
+      collection(db, "chats", chatId, "messages"),
+      orderBy("createdAt", "asc")
+    );
 
     return onSnapshot(q, (snap) => {
       const list = snap.docs
@@ -194,9 +227,12 @@ export default function ChatRoom() {
       snap.docs.forEach((msgDoc) => {
         const msg = msgDoc.data();
         if (msg.senderId !== deviceId && !msg.readBy?.includes(deviceId)) {
-          updateDoc(doc(db, "chats", chatId, "messages", msgDoc.id), {
-            readBy: [...(msg.readBy || []), deviceId],
-          });
+          updateDoc(
+            doc(db, "chats", chatId, "messages", msgDoc.id),
+            {
+              readBy: [...(msg.readBy || []), deviceId],
+            }
+          );
         }
       });
     });
@@ -207,7 +243,9 @@ export default function ChatRoom() {
     if (!ready || !chatId || !deviceId || closed) return;
     return onSnapshot(collection(db, "chats", chatId, "typing"), (snap) => {
       setSomeoneTyping(
-        snap.docs.some((d) => d.id !== deviceId && !blockedIds.includes(d.id))
+        snap.docs.some(
+          (d) => d.id !== deviceId && !blockedIds.includes(d.id)
+        )
       );
     });
   }, [ready, chatId, deviceId, closed, blockedIds]);
@@ -223,7 +261,9 @@ export default function ChatRoom() {
       return;
     }
 
-    await setDoc(doc(db, "chats", chatId, "typing", deviceId), { typing: true });
+    await setDoc(doc(db, "chats", chatId, "typing", deviceId), {
+      typing: true,
+    });
 
     typingTimeout.current = setTimeout(async () => {
       await deleteDoc(doc(db, "chats", chatId, "typing", deviceId));
@@ -255,10 +295,13 @@ export default function ChatRoom() {
         text: "Sil",
         style: "destructive",
         onPress: async () => {
-          await updateDoc(doc(db, "chats", chatId!, "messages", msg.id), {
-            deleted: true,
-            text: "",
-          });
+          await updateDoc(
+            doc(db, "chats", chatId!, "messages", msg.id),
+            {
+              deleted: true,
+              text: "",
+            }
+          );
         },
       },
     ]);
@@ -272,7 +315,7 @@ export default function ChatRoom() {
   const closeChatForever = async () => {
     if (!isOwner) return;
 
-    Alert.alert("Sohbeti Kapat", "Bu sohbet kalıcı olarak kapatılacak. Geri alınamaz.", [
+    Alert.alert("Sohbeti Kapat", "Bu sohbet kalıcı olarak kapatılacak.", [
       { text: "İptal", style: "cancel" },
       {
         text: "Kapat",
@@ -304,14 +347,38 @@ export default function ChatRoom() {
   if (!ready) return null;
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1, backgroundColor: "#0B0B0F" }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-      {/* Nick Modal */}
+    <KeyboardAvoidingView
+      style={{ flex: 1, backgroundColor: "#0B0B0F" }}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
+      {/* NICK MODAL */}
       <Modal visible={nickModalVisible} transparent animationType="fade">
-        <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#00000099" }}>
-          <View style={{ backgroundColor: "#111", padding: 20, borderRadius: 10, width: "80%" }}>
-            <Text style={{ color: "#fff", marginBottom: 10 }}>Nick giriniz:</Text>
+        <View
+          style={{
+            flex: 1,
+            justifyContent: "center",
+            alignItems: "center",
+            backgroundColor: "#00000099",
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: "#111",
+              padding: 20,
+              borderRadius: 10,
+              width: "80%",
+            }}
+          >
+            <Text style={{ color: "#fff", marginBottom: 10 }}>
+              Nick giriniz:
+            </Text>
             <TextInput
-              style={{ backgroundColor: "#222", color: "#fff", padding: 10, borderRadius: 8 }}
+              style={{
+                backgroundColor: "#222",
+                color: "#fff",
+                padding: 10,
+                borderRadius: 8,
+              }}
               placeholder="Nick"
               placeholderTextColor="#888"
               value={nick}
@@ -320,37 +387,90 @@ export default function ChatRoom() {
             <TouchableOpacity
               onPress={async () => {
                 if (!nick.trim()) return;
-                await setStoredNick(`nick-${chatId}-${deviceId}`, nick.trim());
+                await setStoredNick(
+                  `nick-${chatId}-${deviceId}`,
+                  nick.trim()
+                );
                 setNickModalVisible(false);
               }}
-              style={{ marginTop: 10, backgroundColor: "#007AFF", padding: 10, borderRadius: 8 }}
+              style={{
+                marginTop: 10,
+                backgroundColor: "#007AFF",
+                padding: 10,
+                borderRadius: 8,
+              }}
             >
-              <Text style={{ color: "#fff", textAlign: "center" }}>Kaydet</Text>
+              <Text style={{ color: "#fff", textAlign: "center" }}>
+                Kaydet
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
       {/* HEADER */}
-      <View style={{ padding: 14, borderBottomWidth: 1, borderColor: "#1C1C22", backgroundColor: "#111117", flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+      <View
+        style={{
+          padding: 14,
+          borderBottomWidth: 1,
+          borderColor: "#1C1C22",
+          backgroundColor: "#111117",
+          flexDirection: "row",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+      >
         <View>
           <Text style={{ fontSize: 16, fontWeight: "700", color: "#fff" }}>
             Sohbet {closed ? "🛑" : locked ? "🔒" : ""}
           </Text>
           <View style={{ flexDirection: "row", gap: 8 }}>
             <Text style={{ color: "#4FC3F7" }}>Kod: {chatId}</Text>
-            <TouchableOpacity onPress={() => Clipboard.setStringAsync(chatId || "")}>
+            <TouchableOpacity
+              onPress={() => Clipboard.setStringAsync(chatId || "")}
+            >
               <Text style={{ color: "#4FC3F7" }}>📋 Kopyala</Text>
             </TouchableOpacity>
           </View>
-          <Text style={{ color: "#4FC3F7", marginTop: 4 }}>Katılımcılar: {usersInRoom.length}</Text>
+          <Text style={{ color: "#4FC3F7", marginTop: 4 }}>
+            Katılımcılar: {usersInRoom.length}
+          </Text>
+          <Animated.View
+  style={{
+    marginTop: 6,
+    alignSelf: "flex-start",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#4FC3F7",
+    backgroundColor: "rgba(79,195,247,0.08)",
+    shadowColor: "#4FC3F7",
+    shadowOpacity: 0.8,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 0 },
+    transform: [{ scale: pulseTop }],
+  }}
+>
+  <Text
+    style={{
+      color: "#4FC3F7",
+      fontSize: 12,
+      fontWeight: "700",
+    }}
+  >
+    Maks. 8 kişi
+  </Text>
+</Animated.View>
         </View>
 
         <View style={{ flexDirection: "row", gap: 14 }}>
           {isOwner && !closed && (
             <>
               <TouchableOpacity onPress={toggleLock}>
-                <Text style={{ color: "#4FC3F7" }}>{locked ? "Kilidi Aç" : "Kilitle"}</Text>
+                <Text style={{ color: "#4FC3F7" }}>
+                  {locked ? "Kilidi Aç" : "Kilitle"}
+                </Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={closeChatForever}>
                 <Text style={{ color: "#FF453A" }}>Kapat</Text>
@@ -375,29 +495,36 @@ export default function ChatRoom() {
           if (!isMe && blockedIds.includes(item.senderId)) return null;
 
           return (
-            <View style={{ alignSelf: isMe ? "flex-end" : "flex-start", marginBottom: 12 }}>
+            <View
+              style={{
+                alignSelf: isMe ? "flex-end" : "flex-start",
+                marginBottom: 12,
+              }}
+            >
               <TouchableOpacity
-  onPress={() => {
-    if (item.senderId !== deviceId) return; // 🔑 SADECE KENDİN
-    Alert.prompt(
-      "Nick Değiştir",
-      "Yeni nick giriniz:",
-      [
-        { text: "İptal", style: "cancel" },
-        {
-          text: "Kaydet",
-          onPress: async (newNick: string | undefined) => {
-            if (!newNick?.trim()) return;
-            setNick(newNick.trim());
-            await setStoredNick(`nick-${chatId}-${deviceId}`, newNick.trim());
-          },
-        },
-      ],
-      "plain-text",
-      item.nick
-    );
-  }}
-
+                onPress={() => {
+                  if (item.senderId !== deviceId) return;
+                  Alert.prompt(
+                    "Nick Değiştir",
+                    "Yeni nick giriniz:",
+                    [
+                      { text: "İptal", style: "cancel" },
+                      {
+                        text: "Kaydet",
+                        onPress: async (newNick: string | undefined) => {
+                          if (!newNick?.trim()) return;
+                          setNick(newNick.trim());
+                          await setStoredNick(
+                            `nick-${chatId}-${deviceId}`,
+                            newNick.trim()
+                          );
+                        },
+                      },
+                    ],
+                    "plain-text",
+                    item.nick
+                  );
+                }}
                 onLongPress={() => {
                   if (item.senderId === deviceId) return;
                   Alert.alert("Seçenekler", "", [
@@ -405,7 +532,9 @@ export default function ChatRoom() {
                       text: "Engelle",
                       onPress: () =>
                         setBlockedIds((prev) =>
-                          prev.includes(item.senderId) ? prev : [...prev, item.senderId]
+                          prev.includes(item.senderId)
+                            ? prev
+                            : [...prev, item.senderId]
                         ),
                     },
                     { text: "Şikayet Et", onPress: () => reportUser(item) },
@@ -413,7 +542,15 @@ export default function ChatRoom() {
                   ]);
                 }}
               >
-                <Text style={{ color: "#4FC3F7", fontWeight: "700", marginBottom: 4 }}>{item.nick}</Text>
+                <Text
+                  style={{
+                    color: "#4FC3F7",
+                    fontWeight: "700",
+                    marginBottom: 4,
+                  }}
+                >
+                  {item.nick}
+                </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -421,32 +558,83 @@ export default function ChatRoom() {
                 onLongPress={() => {
                   if (isMe) deleteMessageForEveryone(item);
                 }}
-                style={{ backgroundColor: isMe ? "#007AFF" : "#1C1C22", padding: 12, borderRadius: 16, maxWidth: "80%" }}
+                style={{
+                  backgroundColor: isMe ? "#007AFF" : "#1C1C22",
+                  padding: 12,
+                  borderRadius: 16,
+                  maxWidth: "80%",
+                }}
               >
-                <Text style={{ color: "#fff" }}>{item.text || "Bu mesaj silindi"}</Text>
+                <Text style={{ color: "#fff" }}>
+                  {item.text || "Bu mesaj silindi"}
+                </Text>
               </TouchableOpacity>
 
-              <View style={{ flexDirection: "row", gap: 6, alignSelf: isMe ? "flex-end" : "flex-start", marginTop: 2 }}>
-                <Text style={{ fontSize: 11, color: "#888" }}>{formatTime(item.createdAt)}</Text>
-                {isMe && <Text style={{ fontSize: 12, color: readCount > 1 ? "#4FC3F7" : "#666" }}>{readCount > 1 ? "✓✓" : "✓"}</Text>}
+              <View
+                style={{
+                  flexDirection: "row",
+                  gap: 6,
+                  alignSelf: isMe ? "flex-end" : "flex-start",
+                  marginTop: 2,
+                }}
+              >
+                <Text style={{ fontSize: 11, color: "#888" }}>
+                  {formatTime(item.createdAt)}
+                </Text>
+                {isMe && (
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      color: readCount > 1 ? "#4FC3F7" : "#666",
+                    }}
+                  >
+                    {readCount > 1 ? "✓✓" : "✓"}
+                  </Text>
+                )}
               </View>
             </View>
           );
         }}
       />
 
-      {someoneTyping && !closed && <Text style={{ marginLeft: 16, color: "#888" }}>Karşı taraf yazıyor...</Text>}
+      {someoneTyping && !closed && (
+        <Text style={{ marginLeft: 16, color: "#888" }}>
+          Karşı taraf yazıyor...
+        </Text>
+      )}
 
       {!closed && (
-        <View style={{ flexDirection: "row", padding: 10, borderTopWidth: 1, borderColor: "#1C1C22", backgroundColor: "#111117" }}>
+        <View
+          style={{
+            flexDirection: "row",
+            padding: 10,
+            borderTopWidth: 1,
+            borderColor: "#1C1C22",
+            backgroundColor: "#111117",
+          }}
+        >
           <TextInput
             value={text}
             onChangeText={handleTyping}
             placeholder="Mesaj yaz..."
             placeholderTextColor="#666"
-            style={{ flex: 1, backgroundColor: "#1C1C22", color: "#fff", borderRadius: 20, paddingHorizontal: 14 }}
+            style={{
+              flex: 1,
+              backgroundColor: "#1C1C22",
+              color: "#fff",
+              borderRadius: 20,
+              paddingHorizontal: 14,
+            }}
           />
-          <TouchableOpacity onPress={sendMessage} style={{ backgroundColor: "#007AFF", padding: 12, borderRadius: 20, marginLeft: 6 }}>
+          <TouchableOpacity
+            onPress={sendMessage}
+            style={{
+              backgroundColor: "#007AFF",
+              padding: 12,
+              borderRadius: 20,
+              marginLeft: 6,
+            }}
+          >
             <Text style={{ color: "#fff" }}>➤</Text>
           </TouchableOpacity>
         </View>
