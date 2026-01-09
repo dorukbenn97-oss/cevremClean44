@@ -47,7 +47,7 @@ export default function Premium() {
   onPress={() => {
     Alert.alert(
       "Premium",
-      "Premium satın alma App Store üzerinden aktif edilecektir."
+      "Premium satın alma uygulama mağazası üzerinden aktif edilecektir"
     );
   }}
   style={{
