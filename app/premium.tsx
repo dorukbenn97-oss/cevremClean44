@@ -34,10 +34,11 @@ export default function Premium() {
             • Aynı anda 5 gizli oda
           </Text>
           <Text style={{ color: "#fff", fontSize: 16, marginBottom: 12 }}>
-            • Oda başına maksimum 8 kişi
+            • her oda için maksimum 8 kişi
           </Text>
           <Text style={{ color: "#fff", fontSize: 16, marginBottom: 12 }}>
-            • Gelişmiş oda kontrolleri
+            • oda yönetim araçları
+            
           </Text>
 
           

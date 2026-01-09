@@ -6,7 +6,9 @@ import {
   collection,
   deleteDoc,
   doc,
-  getDoc, // ✅ EKLENDİ
+  getDoc,
+  getDocs,
+  increment,
   onSnapshot,
   orderBy,
   query,
@@ -150,7 +152,26 @@ useEffect(() => {
           return;
         }
       }
-      
+      // 🔐 GERÇEK 8 KİŞİ LİMİTİ
+const usersSnap = await getDocs(usersRef);
+
+const now = Date.now();
+const activeCount = usersSnap.docs.filter((d) => {
+  const last = d.data().lastActive?.toMillis?.() || 0;
+  return now - last < 30000;
+}).length;
+
+if (activeCount >= 8) {
+  const meInside = await getDoc(userDoc);
+  if (!meInside.exists()) {
+    Alert.alert(
+      "Oda Dolu",
+      "Bu oda en fazla 8 kişiliktir."
+    );
+    router.replace("/");
+    return;
+  }
+}
     })();
 
     return onSnapshot(ref, async (snap) => {
@@ -369,6 +390,27 @@ useEffect(() => {
               width: "80%",
             }}
           >
+            <TouchableOpacity
+  onPress={async () => {
+    // ❌ nick kaydı OLMASIN
+    setNick("");
+
+    // ❌ modal kapansın
+    setNickModalVisible(false);
+
+    // 🔙 odadan tamamen çık
+    router.back();
+  }}
+  style={{
+    position: "absolute",
+    top: 10,
+    right: 10,
+    zIndex: 10,
+  }}
+>
+  <Text style={{ color: "#fff", fontSize: 18 }}>✕</Text>
+</TouchableOpacity>
+           
             <Text style={{ color: "#fff", marginBottom: 10 }}>
               Nick giriniz:
             </Text>
@@ -385,25 +427,36 @@ useEffect(() => {
               onChangeText={setNick}
             />
             <TouchableOpacity
-              onPress={async () => {
-                if (!nick.trim()) return;
-                await setStoredNick(
-                  `nick-${chatId}-${deviceId}`,
-                  nick.trim()
-                );
-                setNickModalVisible(false);
-              }}
-              style={{
-                marginTop: 10,
-                backgroundColor: "#007AFF",
-                padding: 10,
-                borderRadius: 8,
-              }}
-            >
-              <Text style={{ color: "#fff", textAlign: "center" }}>
-                Kaydet
-              </Text>
-            </TouchableOpacity>
+  onPress={async () => {
+    if (!nick.trim()) return;
+
+    // Nick kaydet
+    await setStoredNick(
+      `nick-${chatId}-${deviceId}`,
+      nick.trim()
+    );
+
+    // ✅ HAK SADECE BURADA DÜŞER
+    if (auth.currentUser?.uid) {
+      const userRef = doc(db, "users", auth.currentUser.uid);
+      await updateDoc(userRef, {
+        roomsUsed: increment(1),
+      }).catch(() => {});
+    }
+
+    setNickModalVisible(false);
+  }}
+  style={{
+    marginTop: 10,
+    backgroundColor: "#007AFF",
+    padding: 10,
+    borderRadius: 8,
+  }}
+>
+  <Text style={{ color: "#fff", textAlign: "center" }}>
+    Kaydet
+  </Text>
+</TouchableOpacity>
           </View>
         </View>
       </Modal>
