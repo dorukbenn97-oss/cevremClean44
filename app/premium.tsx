@@ -18,7 +18,7 @@ export default function Premium() {
             marginBottom: 20,
           }}
         >
-          ⭐ Premium
+          ⭐ Premium ile Daha Rahat ✨
         </Text>
 
         <View
@@ -65,7 +65,7 @@ export default function Premium() {
       textAlign: "center",
     }}
   >
-    ⭐ Premium Satın Al
+    ⭐ Premium’a Geç
   </Text>
 </TouchableOpacity>
 

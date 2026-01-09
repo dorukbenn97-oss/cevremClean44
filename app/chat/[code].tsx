@@ -369,9 +369,10 @@ if (activeCount >= 8) {
 
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: "#0B0B0F" }}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
+  style={{ flex: 1, backgroundColor: "#0B0B0F" }}
+  behavior={Platform.OS === "ios" ? "padding" : "height"}
+  keyboardVerticalOffset={Platform.OS === "android" ? 20 : 0}
+>
       {/* NICK MODAL */}
       <Modal visible={nickModalVisible} transparent animationType="fade">
         <View
