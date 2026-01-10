@@ -431,21 +431,28 @@ if (activeCount >= 8) {
   onPress={async () => {
     if (!nick.trim()) return;
 
-    // Nick kaydet
-    await setStoredNick(
-      `nick-${chatId}-${deviceId}`,
-      nick.trim()
-    );
+   // Nick kaydet
+await setStoredNick(
+  `nick-${chatId}-${deviceId}`,
+  nick.trim()
+);
 
-    // ✅ HAK SADECE BURADA DÜŞER
-    if (auth.currentUser?.uid) {
-      const userRef = doc(db, "users", auth.currentUser.uid);
-      await updateDoc(userRef, {
-        roomsUsed: increment(1),
-      }).catch(() => {});
-    }
+// ✅ ODA ARTIK GERÇEK → LİSTEYE EKLE
+const stored = JSON.parse(
+  (await AsyncStorage.getItem("myChats")) || "[]"
+);
+const updated = Array.from(new Set([chatId, ...stored]));
+await AsyncStorage.setItem("myChats", JSON.stringify(updated));
 
-    setNickModalVisible(false);
+// ✅ HAK SADECE BURADA DÜŞER
+if (auth.currentUser?.uid) {
+  const userRef = doc(db, "users", auth.currentUser.uid);
+  await updateDoc(userRef, {
+    roomsUsed: increment(1),
+  }).catch(() => {});
+}
+
+setNickModalVisible(false);
   }}
   style={{
     marginTop: 10,

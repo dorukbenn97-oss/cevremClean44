@@ -27,7 +27,7 @@ function generateCode() {
   return Math.random().toString(36).substring(2, 8).toUpperCase();
 }
 
-const HIDDEN_CHATS_KEY = "hiddenChats";
+
 const DELETED_CHATS_KEY = "deletedChats";
 
 const FREE_MAX_ROOMS = 1;
@@ -40,7 +40,7 @@ export default function Index() {
 
   const [code, setCode] = useState("");
   const [myChats, setMyChats] = useState<string[]>([]);
-  const [hiddenChats, setHiddenChats] = useState<string[]>([]);
+ 
   const [deletedChats, setDeletedChats] = useState<string[]>([]);
 
   const [selectMode, setSelectMode] = useState(false);
@@ -96,7 +96,7 @@ export default function Index() {
   useEffect(() => {
     (async () => {
       setMyChats(JSON.parse((await AsyncStorage.getItem("myChats")) || "[]"));
-      setHiddenChats(JSON.parse((await AsyncStorage.getItem(HIDDEN_CHATS_KEY)) || "[]"));
+      
       setDeletedChats(JSON.parse((await AsyncStorage.getItem(DELETED_CHATS_KEY)) || "[]"));
     })();
   }, []);
@@ -144,7 +144,7 @@ export default function Index() {
     });
 
     
-    await saveChatToList(newCode);
+   
     router.push(`/chat/${newCode}`);
   };
 
@@ -178,13 +178,7 @@ export default function Index() {
     );
   };
 
-  const hideSelected = async () => {
-    const updated = Array.from(new Set([...hiddenChats, ...selected]));
-    setHiddenChats(updated);
-    await AsyncStorage.setItem(HIDDEN_CHATS_KEY, JSON.stringify(updated));
-    setSelected([]);
-    setSelectMode(false);
-  };
+  
 
   const deleteSelected = async () => {
     const updated = Array.from(new Set([...deletedChats, ...selected]));
@@ -194,10 +188,9 @@ export default function Index() {
     setSelectMode(false);
   };
 
-  const visibleChats = myChats.filter(
-    (c) => !hiddenChats.includes(c) && !deletedChats.includes(c)
-  );
-
+ const visibleChats = myChats.filter(
+  (c) => !deletedChats.includes(c)
+);
   if (!authReady) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: "#0B0B0F", justifyContent: "center", alignItems: "center" }}>
@@ -253,6 +246,17 @@ export default function Index() {
             🔐 Gizli Oda Oluştur
           </Text>
         </TouchableOpacity>
+        <Text
+  style={{
+    color: "#8A8A8F",
+    fontSize: 13,
+    textAlign: "center",
+    marginTop: 6,
+    marginBottom: 20,
+  }}
+>
+  ⏳ Oluşturulan odalar 24 saat sonra otomatik silinir
+</Text>
 
         <TextInput
           value={code}
@@ -289,17 +293,17 @@ export default function Index() {
         </TouchableOpacity>
 
         {visibleChats.length > 0 && (
-          <Animated.Text
-            style={{
-              color: "#8A8A8F",
-              fontSize: 12,
-              marginBottom: 10,
-              transform: [{ scale: pulseBottom }],
-            }}
-          >
-            Sadece senin gördüklerin
-          </Animated.Text>
-        )}
+  <Text
+    style={{
+      color: "#8A8A8F",
+      fontSize: 12,
+      marginBottom: 10,
+      textAlign: "left",
+    }}
+  >
+    Sadece senin gördüklerin
+  </Text>
+)}
 
         {selectMode && (
           <View style={{ flexDirection: "row", gap: 10, marginBottom: 12 }}>
@@ -317,17 +321,7 @@ export default function Index() {
 >
   <Text style={{ color: "#fff", fontSize: 18 }}>✕</Text>
 </TouchableOpacity>
-            <TouchableOpacity
-              onPress={hideSelected}
-              style={{
-                flex: 1,
-                padding: 12,
-                backgroundColor: "#2C2C35",
-                borderRadius: 10,
-              }}
-            >
-              <Text style={{ color: "#fff", textAlign: "center" }}>🙈 Gizle</Text>
-            </TouchableOpacity>
+            
             <TouchableOpacity
               onPress={deleteSelected}
               style={{
