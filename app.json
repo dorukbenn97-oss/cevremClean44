@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "cevremClean",
+    "name": "Fısıltı",
     "slug": "cevremClean",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -9,7 +9,11 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.fisilti.app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -45,6 +49,13 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "88cea009-56e9-452e-9d16-656a614d0677"
+      }
+    },
+    "owner": "erkan9797istanbul"
   }
 }
