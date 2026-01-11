@@ -235,7 +235,7 @@ if (activeCount >= 8) {
 
     const q = query(
       collection(db, "chats", chatId, "messages"),
-      orderBy("createdAt", "asc")
+      orderBy("createdAt", "desc")
     );
 
     return onSnapshot(q, (snap) => {
@@ -546,10 +546,11 @@ setNickModalVisible(false);
 
       {/* MESSAGES */}
       <FlatList
-        data={messages}
-        keyExtractor={(i) => i.id}
-        contentContainerStyle={{ padding: 16 }}
-        renderItem={({ item }) => {
+  data={messages}
+  inverted
+  keyExtractor={(i) => i.id}
+  contentContainerStyle={{ padding: 16, flexGrow: 1, justifyContent: "flex-end" }}
+  renderItem={({ item }) => {
           const isMe = item.senderId === deviceId;
           const readCount = item.readBy?.length || 0;
 
