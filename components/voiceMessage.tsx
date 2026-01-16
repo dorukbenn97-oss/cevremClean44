@@ -1,4 +1,5 @@
 import { Audio } from "expo-av";
+import { arrayUnion, doc, updateDoc } from "firebase/firestore";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -7,21 +8,27 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { db } from "../firebaseConfig";
 
 type VoiceMessageProps = {
   chatId: string;
-  audioUrl: string;     // 🔊 ses dosyası URL
-  duration: number;     // ⏱️ saniye
-  isMe?: boolean;       // 👤 mesaj bana mı ait
+  messageId: string;     // ✅ EKLENDİ
+  deviceId: string;      // ✅ EKLENDİ
+  audioUrl: string;
+  duration: number;
+  isMe?: boolean;
 };
 
 export default function VoiceMessage({
   chatId,
+  messageId,
+  deviceId,
   audioUrl,
   duration,
   isMe = false,
 }: VoiceMessageProps) {
   const soundRef = useRef<Audio.Sound | null>(null);
+  const markedReadRef = useRef(false); // ✅ TEK SEFER OKUNDU
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [position, setPosition] = useState(0);
@@ -40,6 +47,19 @@ export default function VoiceMessage({
     const s = Math.floor(sec % 60);
     return `${m}:${s < 10 ? "0" : ""}${s}`;
   };
+
+  async function markAsReadOnce() {
+    if (markedReadRef.current || isMe) return;
+
+    markedReadRef.current = true;
+
+    await updateDoc(
+      doc(db, "chats", chatId, "messages", messageId),
+      {
+        readBy: arrayUnion(deviceId),
+      }
+    );
+  }
 
   async function togglePlay() {
     try {
@@ -62,6 +82,9 @@ export default function VoiceMessage({
         );
 
         soundRef.current = sound;
+
+        await markAsReadOnce(); // ✅ İŞTE OLAY BURASI
+
         setIsPlaying(true);
         setLoading(false);
         return;
@@ -72,6 +95,7 @@ export default function VoiceMessage({
         setIsPlaying(false);
       } else {
         await soundRef.current.playAsync();
+        await markAsReadOnce(); // ✅ TEKRAR KONTROL (GÜVENLİ)
         setIsPlaying(true);
       }
     } catch (e) {
@@ -80,19 +104,12 @@ export default function VoiceMessage({
   }
 
   return (
-    <View
-      style={[
-        styles.container,
-        isMe ? styles.me : styles.other,
-      ]}
-    >
+    <View style={[styles.container, isMe ? styles.me : styles.other]}>
       <TouchableOpacity onPress={togglePlay} style={styles.play}>
         {loading ? (
           <ActivityIndicator color="#fff" />
         ) : (
-          <Text style={styles.icon}>
-            {isPlaying ? "⏸️" : "▶️"}
-          </Text>
+          <Text style={styles.icon}>{isPlaying ? "⏸️" : "▶️"}</Text>
         )}
       </TouchableOpacity>
 

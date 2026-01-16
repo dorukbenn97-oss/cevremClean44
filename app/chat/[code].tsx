@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Audio } from "expo-av";
 import * as Clipboard from "expo-clipboard";
@@ -5,6 +6,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { getAuth } from "firebase/auth";
 import {
   addDoc,
+  arrayUnion,
   collection,
   deleteDoc,
   doc,
@@ -74,6 +76,7 @@ async function setStoredNick(key: string, value: string) {
 }
 
 export default function ChatRoom() {
+  const [isRecordingUI, setIsRecordingUI] = useState(false);
   useEffect(() => {
   Audio.setAudioModeAsync({
     allowsRecordingIOS: false,
@@ -133,11 +136,13 @@ async function stopRecording() {
     const downloadURL = await getDownloadURL(storageRef);
 
     await addDoc(collection(db, "chats", chatId, "messages"), {
-      type: "voice",
-      audioUrl: downloadURL,
-      senderId: deviceId,
-      createdAt: serverTimestamp(),
-    });
+  type: "voice",
+  audioUrl: downloadURL,
+  senderId: deviceId,
+  readBy: [deviceId],      // ✅ okundu fix
+  nick: nick,              // ✅ düzeltildi
+  createdAt: serverTimestamp(),
+});
 
     // 🔊 KAYITTAN ÇIK → ÇALMA MODU
     await Audio.setAudioModeAsync({
@@ -208,6 +213,7 @@ useEffect(() => {
     const ref = doc(db, "chats", chatId);
     const usersRef = collection(db, "chats", chatId, "users");
     const userDoc = doc(usersRef, deviceId);
+    
 
     (async () => {
       const snap = await getDoc(ref);
@@ -319,24 +325,23 @@ if (activeCount >= 8) {
     );
 
     return onSnapshot(q, (snap) => {
-      const list = snap.docs
-        .map((d) => ({ id: d.id, ...d.data() }))
-        .filter((m) => !(m as any).deleted);
+  const list = snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .filter((m) => !(m as any).deleted);
 
-      setMessages(list);
-
-      snap.docs.forEach((msgDoc) => {
-        const msg = msgDoc.data();
-        if (msg.senderId !== deviceId && !msg.readBy?.includes(deviceId)) {
-          updateDoc(
-            doc(db, "chats", chatId, "messages", msgDoc.id),
-            {
-              readBy: [...(msg.readBy || []), deviceId],
-            }
-          );
-        }
+  snap.docs.forEach((msgDoc) => {
+    const msg = msgDoc.data();
+    if (msg.senderId !== deviceId) {
+      updateDoc(msgDoc.ref, {
+        readBy: arrayUnion(deviceId),
       });
-    });
+    }
+  });
+
+  setMessages(list);
+});
+
+
   }, [ready, chatId, deviceId]);
 
   /* TYPING */
@@ -636,21 +641,46 @@ setNickModalVisible(false);
 
           if (!isMe && blockedIds.includes(item.senderId)) return null;
 
-          return (
-            <View
-              style={{
-                alignSelf: isMe ? "flex-end" : "flex-start",
-                marginBottom: 12,
-              }}
-            >
-              {item.type === "voice" && (
-  <VoiceMessage
-    chatId={chatId!}
-    audioUrl={item.audioUrl}
-    duration={item.duration || 0}
-    isMe={isMe}
-  />
-)}
+          if (item.type === "voice") {
+  return (
+    <View style={{ alignSelf: isMe ? "flex-end" : "flex-start", marginBottom: 12 }}>
+      {!!item.nick && (
+        <Text style={{ color: "#4FC3F7", fontWeight: "700", marginBottom: 4 }}>
+          {item.nick}
+        </Text>
+      )}
+
+      <VoiceMessage
+  chatId={chatId!}
+  messageId={item.id}      // ✅ EKLENDİ
+  deviceId={deviceId!}      // ✅ EKLENDİ
+  audioUrl={item.audioUrl}
+  duration={item.duration || 0}
+  isMe={isMe}
+/>
+
+      <View style={{ flexDirection: "row", gap: 6, alignSelf: isMe ? "flex-end" : "flex-start", marginTop: 2 }}>
+        <Text style={{ fontSize: 11, color: "#888" }}>
+          {item.createdAt?.toDate ? item.createdAt.toDate().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }) : ""}
+        </Text>
+
+        {isMe && (
+          <Text style={{ fontSize: 11, color: readCount > 1 ? "#4FC3F7" : "#888" }}>
+            {readCount > 1 ? "✓✓" : "✓"}
+          </Text>
+        )}
+      </View>
+    </View>
+  );
+}
+
+return (
+  <View
+    style={{
+      alignSelf: isMe ? "flex-end" : "flex-start",
+      marginBottom: 12,
+    }}
+  >
               <TouchableOpacity
                 onPress={() => {
                   if (item.senderId !== deviceId) return;
@@ -757,33 +787,22 @@ setNickModalVisible(false);
     backgroundColor: "#111",
   }}
 >
+  
+  
+</View>
+  <View style={{ flexDirection: "row", alignItems: "center" }}>
   <TouchableOpacity
   onPress={isRecording ? stopRecording : startRecording}
   style={{ marginRight: 10 }}
 >
-  <Text style={{ fontSize: 22, color: "#fff" }}>
-  {isRecording ? "⏹️" : "🎤"}
-</Text>
-</TouchableOpacity>
-  <TextInput
-    style={{
-      flex: 1,
-      backgroundColor: "#222",
-      color: "#fff",
-      borderRadius: 20,
-      paddingHorizontal: 14,
-      paddingVertical: 8,
-      marginRight: 10,
-    }}
-    placeholder="Mesaj yaz..."
-    placeholderTextColor="#888"
-    value={text}
-    onChangeText={setText}
+  <Ionicons
+    name={isRecording ? "stop-circle" : "mic"}
+    size={22}
+    color={isRecording ? "#f55" : "#aaa"}
   />
+</TouchableOpacity>
 
-  <TouchableOpacity onPress={sendMessage}>
-    <Text style={{ fontSize: 20, color: "#0af" }}>📤</Text>
-  </TouchableOpacity>
+  
 </View>
 
       {someoneTyping && !closed && (
