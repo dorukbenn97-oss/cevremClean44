@@ -1,6 +1,8 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Audio } from "expo-av";
 import * as Clipboard from "expo-clipboard";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { getAuth } from "firebase/auth";
 import {
   addDoc,
   collection,
@@ -16,6 +18,7 @@ import {
   setDoc,
   updateDoc
 } from "firebase/firestore";
+import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { useEffect, useRef, useState } from "react";
 import {
   Alert,
@@ -29,7 +32,8 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { auth, db } from "../../firebaseConfig";
+import VoiceMessage from "../../components/voiceMessage";
+import { db, storage } from "../../firebaseConfig";
 
 /* 🆔 DEVICE ID */
 async function getDeviceId(): Promise<string> {
@@ -70,6 +74,82 @@ async function setStoredNick(key: string, value: string) {
 }
 
 export default function ChatRoom() {
+  useEffect(() => {
+  Audio.setAudioModeAsync({
+    allowsRecordingIOS: false,
+    playsInSilentModeIOS: true,
+    staysActiveInBackground: false,
+  });
+}, []);
+  
+
+// tekrar getStorage YOK
+const auth = getAuth();
+  const [recording, setRecording] = useState<Audio.Recording | null>(null);
+const [isRecording, setIsRecording] = useState(false);
+  
+
+async function startRecording() {
+  try {
+    const permission = await Audio.requestPermissionsAsync();
+    if (!permission.granted) return;
+
+    await Audio.setAudioModeAsync({
+      allowsRecordingIOS: true,
+      playsInSilentModeIOS: true,
+    });
+
+    const rec = new Audio.Recording();
+    await rec.prepareToRecordAsync(
+      Audio.RecordingOptionsPresets.HIGH_QUALITY
+    );
+    await rec.startAsync();
+
+    setRecording(rec);
+    setIsRecording(true);
+  } catch (err) {
+    console.log("record error", err);
+  }
+}
+
+async function stopRecording() {
+  try {
+    if (!recording) return; // ✅ TS HATASI BURADA BİTİYOR
+
+    setIsRecording(false);
+    await recording.stopAndUnloadAsync();
+
+    const uri = recording.getURI();
+    if (!uri) return;
+    if (!chatId || typeof chatId !== "string") return;
+
+    const response = await fetch(uri);
+    const blob = await response.blob();
+
+    const fileName = `voices/${chatId}/${Date.now()}.m4a`;
+    const storageRef = ref(storage, fileName);
+
+    await uploadBytes(storageRef, blob);
+    const downloadURL = await getDownloadURL(storageRef);
+
+    await addDoc(collection(db, "chats", chatId, "messages"), {
+      type: "voice",
+      audioUrl: downloadURL,
+      senderId: deviceId,
+      createdAt: serverTimestamp(),
+    });
+
+    // 🔊 KAYITTAN ÇIK → ÇALMA MODU
+    await Audio.setAudioModeAsync({
+      allowsRecordingIOS: false,
+      playsInSilentModeIOS: true,
+    });
+
+    setRecording(null);
+  } catch (e) {
+    console.log("Ses gönderme hatası:", e);
+  }
+}
   const pulseTop = useRef(new Animated.Value(1)).current;
 
 useEffect(() => {
@@ -563,6 +643,14 @@ setNickModalVisible(false);
                 marginBottom: 12,
               }}
             >
+              {item.type === "voice" && (
+  <VoiceMessage
+    chatId={chatId!}
+    audioUrl={item.audioUrl}
+    duration={item.duration || 0}
+    isMe={isMe}
+  />
+)}
               <TouchableOpacity
                 onPress={() => {
                   if (item.senderId !== deviceId) return;
@@ -658,6 +746,45 @@ setNickModalVisible(false);
           );
         }}
       />
+      {/* INPUT BAR */}
+<View
+  style={{
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 10,
+    borderTopWidth: 1,
+    borderColor: "#333",
+    backgroundColor: "#111",
+  }}
+>
+  <TouchableOpacity
+  onPress={isRecording ? stopRecording : startRecording}
+  style={{ marginRight: 10 }}
+>
+  <Text style={{ fontSize: 22, color: "#fff" }}>
+  {isRecording ? "⏹️" : "🎤"}
+</Text>
+</TouchableOpacity>
+  <TextInput
+    style={{
+      flex: 1,
+      backgroundColor: "#222",
+      color: "#fff",
+      borderRadius: 20,
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+      marginRight: 10,
+    }}
+    placeholder="Mesaj yaz..."
+    placeholderTextColor="#888"
+    value={text}
+    onChangeText={setText}
+  />
+
+  <TouchableOpacity onPress={sendMessage}>
+    <Text style={{ fontSize: 20, color: "#0af" }}>📤</Text>
+  </TouchableOpacity>
+</View>
 
       {someoneTyping && !closed && (
         <Text style={{ marginLeft: 16, color: "#888" }}>
@@ -688,6 +815,7 @@ setNickModalVisible(false);
               paddingHorizontal: 14,
             }}
           />
+          
           <TouchableOpacity
             onPress={sendMessage}
             style={{

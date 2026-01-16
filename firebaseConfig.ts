@@ -7,7 +7,7 @@ const firebaseConfig = {
   apiKey: "AIzaSyCrjrpl7W88jJqcz6rAU5CDV2TJdRApwJI",
   authDomain: "cleanapp-f2720.firebaseapp.com",
   projectId: "cleanapp-f2720",
-  storageBucket: "cleanapp-f2720.appspot.com",
+  storageBucket: "cleanapp-f2720.firebasestorage.app",
   messagingSenderId: "646677343584",
   appId: "1:646677343584:web:456bee25be8db2a16cee05",
 };

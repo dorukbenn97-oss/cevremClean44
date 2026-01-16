@@ -8,6 +8,11 @@
     "scheme": "cevremclean",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+
+    "splash": {
+  "backgroundColor": "#000000"
+},
+
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.fisilti.app",
@@ -15,6 +20,7 @@
         "ITSAppUsesNonExemptEncryption": false
       }
     },
+
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
@@ -26,36 +32,29 @@
       "predictiveBackGestureEnabled": false,
       "package": "com.anonymous.cevremClean"
     },
+
     "web": {
       "output": "static",
       "favicon": "./assets/images/favicon.png",
       "serviceWorker": false
     },
+
     "plugins": [
-      "expo-router",
-      [
-        "expo-splash-screen",
-        {
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
-          "resizeMode": "contain",
-          "backgroundColor": "#ffffff",
-          "dark": {
-            "backgroundColor": "#000000"
-          }
-        }
-      ]
+      "expo-router"
     ],
+
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
     },
+
     "extra": {
       "router": {},
       "eas": {
         "projectId": "88cea009-56e9-452e-9d16-656a614d0677"
       }
     },
+
     "owner": "erkan9797istanbul"
   }
 }
