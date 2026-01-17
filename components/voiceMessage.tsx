@@ -1,4 +1,4 @@
-import { Audio } from "expo-av";
+import { AVPlaybackStatus } from "expo-av";
 import { arrayUnion, doc, updateDoc } from "firebase/firestore";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -9,11 +9,12 @@ import {
   View,
 } from "react-native";
 import { db } from "../firebaseConfig";
+import { playAudio, stopAudio } from "./AudioPlayerManager";
 
 type VoiceMessageProps = {
   chatId: string;
-  messageId: string;     // ✅ EKLENDİ
-  deviceId: string;      // ✅ EKLENDİ
+  messageId: string;
+  deviceId: string;
   audioUrl: string;
   duration: number;
   isMe?: boolean;
@@ -27,18 +28,19 @@ export default function VoiceMessage({
   duration,
   isMe = false,
 }: VoiceMessageProps) {
-  const soundRef = useRef<Audio.Sound | null>(null);
-  const markedReadRef = useRef(false); // ✅ TEK SEFER OKUNDU
+  const markedReadRef = useRef(false);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [position, setPosition] = useState(0);
+  const [realDuration, setRealDuration] = useState(duration);
   const [loading, setLoading] = useState(false);
+
+  // ⏸️ durdurunca bar sıfırlanmasın diye
+  const lastPositionRef = useRef(0);
 
   useEffect(() => {
     return () => {
-      if (soundRef.current) {
-        soundRef.current.unloadAsync();
-      }
+      stopAudio();
     };
   }, []);
 
@@ -50,57 +52,61 @@ export default function VoiceMessage({
 
   async function markAsReadOnce() {
     if (markedReadRef.current || isMe) return;
-
     markedReadRef.current = true;
 
-    await updateDoc(
-      doc(db, "chats", chatId, "messages", messageId),
-      {
-        readBy: arrayUnion(deviceId),
-      }
-    );
+    await updateDoc(doc(db, "chats", chatId, "messages", messageId), {
+      readBy: arrayUnion(deviceId),
+    });
   }
 
   async function togglePlay() {
-    try {
-      if (!soundRef.current) {
-        setLoading(true);
+    if (loading) return;
 
-        const { sound } = await Audio.Sound.createAsync(
-          { uri: audioUrl },
-          { shouldPlay: true },
-          (status) => {
-            if (!status.isLoaded) return;
-
-            setPosition((status.positionMillis || 0) / 1000);
-
-            if (status.didJustFinish) {
-              setIsPlaying(false);
-              setPosition(0);
-            }
-          }
-        );
-
-        soundRef.current = sound;
-
-        await markAsReadOnce(); // ✅ İŞTE OLAY BURASI
-
-        setIsPlaying(true);
-        setLoading(false);
-        return;
-      }
-
-      if (isPlaying) {
-        await soundRef.current.pauseAsync();
-        setIsPlaying(false);
-      } else {
-        await soundRef.current.playAsync();
-        await markAsReadOnce(); // ✅ TEKRAR KONTROL (GÜVENLİ)
-        setIsPlaying(true);
-      }
-    } catch (e) {
+    // ⏸️ DURDUR (arkada stop + unload, UI kalır)
+    if (isPlaying) {
+      setLoading(true);
+      await stopAudio();
+      setIsPlaying(false);
+      // position SIFIRLANMIYOR → pause hissi
       setLoading(false);
+      return;
     }
+
+    // ▶️ OYNAT (stabil şekilde baştan)
+    setLoading(true);
+
+    await playAudio({
+      uri: audioUrl,
+
+      onStatus: (status: AVPlaybackStatus) => {
+        if (!status.isLoaded) return;
+
+        if (status.positionMillis != null) {
+          const sec = status.positionMillis / 1000;
+          setPosition(sec);
+          lastPositionRef.current = sec;
+        }
+
+        if (status.durationMillis && realDuration === 0) {
+          setRealDuration(status.durationMillis / 1000);
+        }
+
+        if (status.didJustFinish) {
+          setIsPlaying(false);
+          setPosition(0);
+          lastPositionRef.current = 0;
+        }
+      },
+
+      onStop: () => {
+        setIsPlaying(false);
+        setPosition(lastPositionRef.current); // bar aynı kalsın
+      },
+    });
+
+    setIsPlaying(true);
+    await markAsReadOnce();
+    setLoading(false);
   }
 
   return (
@@ -120,8 +126,8 @@ export default function VoiceMessage({
               styles.progress,
               {
                 width:
-                  duration > 0
-                    ? `${Math.min((position / duration) * 100, 100)}%`
+                  realDuration > 0
+                    ? `${Math.min((position / realDuration) * 100, 100)}%`
                     : "0%",
               },
             ]}
@@ -129,7 +135,7 @@ export default function VoiceMessage({
         </View>
 
         <Text style={styles.time}>
-          {formatTime(position)} / {formatTime(duration)}
+          {formatTime(position)} / {formatTime(realDuration)}
         </Text>
       </View>
     </View>

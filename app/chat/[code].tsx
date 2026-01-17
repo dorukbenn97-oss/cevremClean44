@@ -635,6 +635,7 @@ setNickModalVisible(false);
   inverted
   keyExtractor={(i) => i.id}
   contentContainerStyle={{ padding: 16, flexGrow: 1, justifyContent: "flex-end" }}
+  removeClippedSubviews={false}
   renderItem={({ item }) => {
           const isMe = item.senderId === deviceId;
           const readCount = item.readBy?.length || 0;
