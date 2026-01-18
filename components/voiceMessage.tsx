@@ -1,8 +1,9 @@
 import { AVPlaybackStatus } from "expo-av";
-import { arrayUnion, doc, updateDoc } from "firebase/firestore";
+import { arrayUnion, deleteDoc, doc, updateDoc } from "firebase/firestore";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -35,7 +36,6 @@ export default function VoiceMessage({
   const [realDuration, setRealDuration] = useState(duration);
   const [loading, setLoading] = useState(false);
 
-  // ⏸️ durdurunca bar sıfırlanmasın diye
   const lastPositionRef = useRef(0);
 
   useEffect(() => {
@@ -59,20 +59,43 @@ export default function VoiceMessage({
     });
   }
 
+  // ❌❌❌ SİLME (UZUN BASMA)
+  function handleDelete() {
+    if (!isMe) return;
+
+    Alert.alert(
+      "Sesli mesaj silinsin mi?",
+      "Bu işlem geri alınamaz",
+      [
+        { text: "İptal", style: "cancel" },
+        {
+          text: "Sil",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await deleteDoc(
+                doc(db, "chats", chatId, "messages", messageId)
+              );
+            } catch (e) {
+              console.log("Ses silme hatası:", e);
+            }
+          },
+        },
+      ]
+    );
+  }
+
   async function togglePlay() {
     if (loading) return;
 
-    // ⏸️ DURDUR (arkada stop + unload, UI kalır)
     if (isPlaying) {
       setLoading(true);
       await stopAudio();
       setIsPlaying(false);
-      // position SIFIRLANMIYOR → pause hissi
       setLoading(false);
       return;
     }
 
-    // ▶️ OYNAT (stabil şekilde baştan)
     setLoading(true);
 
     await playAudio({
@@ -100,7 +123,7 @@ export default function VoiceMessage({
 
       onStop: () => {
         setIsPlaying(false);
-        setPosition(lastPositionRef.current); // bar aynı kalsın
+        setPosition(lastPositionRef.current);
       },
     });
 
@@ -111,7 +134,12 @@ export default function VoiceMessage({
 
   return (
     <View style={[styles.container, isMe ? styles.me : styles.other]}>
-      <TouchableOpacity onPress={togglePlay} style={styles.play}>
+      <TouchableOpacity
+        onPress={togglePlay}
+        onLongPress={handleDelete}
+        activeOpacity={0.8}
+        style={styles.play}
+      >
         {loading ? (
           <ActivityIndicator color="#fff" />
         ) : (

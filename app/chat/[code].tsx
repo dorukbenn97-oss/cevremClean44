@@ -778,77 +778,82 @@ return (
         }}
       />
       {/* INPUT BAR */}
-<View
-  style={{
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 10,
-    borderTopWidth: 1,
-    borderColor: "#333",
-    backgroundColor: "#111",
-  }}
->
-  
-  
-</View>
-  <View style={{ flexDirection: "row", alignItems: "center" }}>
-  <TouchableOpacity
-  onPress={isRecording ? stopRecording : startRecording}
-  style={{ marginRight: 10 }}
->
-  <Ionicons
-    name={isRecording ? "stop-circle" : "mic"}
-    size={22}
-    color={isRecording ? "#f55" : "#aaa"}
-  />
-</TouchableOpacity>
+{!closed && (
+  <View
+    style={{
+      flexDirection: "row",
+      alignItems: "center",
+      padding: 10,
+      borderTopWidth: 1,
+      borderColor: "#1C1C22",
+      backgroundColor: "#111117",
+    }}
+  >
+    {/* 🎙️ KAYIT YOKKEN */}
+    {!isRecording && (
+      <>
+        <TouchableOpacity
+          onPress={startRecording}
+          style={{ marginRight: 10 }}
+        >
+          <Ionicons name="mic" size={24} color="#aaa" />
+        </TouchableOpacity>
 
-  
-</View>
-
-      {someoneTyping && !closed && (
-        <Text style={{ marginLeft: 16, color: "#888" }}>
-          Karşı taraf yazıyor...
-        </Text>
-      )}
-
-      {!closed && (
-        <View
+        <TextInput
+          value={text}
+          onChangeText={handleTyping}
+          placeholder="Mesaj yaz..."
+          placeholderTextColor="#666"
           style={{
-            flexDirection: "row",
-            padding: 10,
-            borderTopWidth: 1,
-            borderColor: "#1C1C22",
-            backgroundColor: "#111117",
+            flex: 1,
+            backgroundColor: "#1C1C22",
+            color: "#fff",
+            borderRadius: 20,
+            paddingHorizontal: 14,
+            paddingVertical: 8,
+          }}
+        />
+
+        <TouchableOpacity
+          onPress={sendMessage}
+          style={{
+            backgroundColor: "#007AFF",
+            padding: 12,
+            borderRadius: 20,
+            marginLeft: 6,
           }}
         >
-          <TextInput
-            value={text}
-            onChangeText={handleTyping}
-            placeholder="Mesaj yaz..."
-            placeholderTextColor="#666"
-            style={{
-              flex: 1,
-              backgroundColor: "#1C1C22",
-              color: "#fff",
-              borderRadius: 20,
-              paddingHorizontal: 14,
-            }}
-          />
-          
-          <TouchableOpacity
-            onPress={sendMessage}
-            style={{
-              backgroundColor: "#007AFF",
-              padding: 12,
-              borderRadius: 20,
-              marginLeft: 6,
-            }}
-          >
-            <Text style={{ color: "#fff" }}>➤</Text>
-          </TouchableOpacity>
-        </View>
-      )}
+          <Text style={{ color: "#fff", fontSize: 16 }}>➤</Text>
+        </TouchableOpacity>
+      </>
+    )}
+
+    {/* 🎧 KAYIT VARKEN (WHATSAPP BAR) */}
+    {isRecording && (
+      <View
+        style={{
+          flex: 1,
+          flexDirection: "row",
+          alignItems: "center",
+          backgroundColor: "#1C1C22",
+          borderRadius: 20,
+          paddingHorizontal: 12,
+          paddingVertical: 10,
+        }}
+      >
+        <TouchableOpacity onPress={stopRecording} style={{ marginRight: 12 }}>
+          <Ionicons name="trash" size={22} color="#f55" />
+        </TouchableOpacity>
+
+        <Text style={{ color: "#fff", flex: 1 }}>Kayıt alınıyor…</Text>
+
+        <TouchableOpacity onPress={stopRecording}>
+          <Ionicons name="send" size={22} color="#2ecc71" />
+        </TouchableOpacity>
+      </View>
+    )}
+  </View>
+)}
     </KeyboardAvoidingView>
   );
 }
