@@ -6,8 +6,7 @@ import {
   getDoc,
   serverTimestamp,
   setDoc,
-  Timestamp,
-  updateDoc,
+  Timestamp
 } from "firebase/firestore";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -166,7 +165,7 @@ export default function Index() {
       return;
     }
 
-    await updateDoc(chatRef, { participantsCount: count + 1 });
+    
     await saveChatToList(c);
     router.push(`/chat/${c}`);
   };

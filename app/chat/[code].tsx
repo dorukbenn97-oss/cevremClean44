@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Audio } from "expo-av";
 import * as Clipboard from "expo-clipboard";
+import * as Location from "expo-location";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { getAuth } from "firebase/auth";
 import {
@@ -26,13 +27,12 @@ import {
   Alert,
   Animated,
   FlatList,
-  KeyboardAvoidingView,
-  Modal,
+  KeyboardAvoidingView, Linking, Modal,
   Platform,
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
 import VoiceMessage from "../../components/voiceMessage";
 import { db, storage } from "../../firebaseConfig";
@@ -76,6 +76,47 @@ async function setStoredNick(key: string, value: string) {
 }
 
 export default function ChatRoom() {
+  // ✅ AKTİFLİK GÜNCELLE (pasif düşmeyi engeller)
+async function bumpActive() {
+  try {
+    if (!chatId || !deviceId) return;
+
+    await setDoc(
+      doc(db, "chats", chatId, "users", deviceId),
+      {
+        nick: nick || "Anon",
+        lastActive: serverTimestamp(),
+      },
+      { merge: true }
+    );
+  } catch (e) {}
+}
+  async function requestLocation() {
+  const { status } = await Location.requestForegroundPermissionsAsync();
+  if (status !== "granted") {
+    alert("Konum izni verilmedi");
+    return;
+  }
+
+  // 1️⃣ ÖNCE konumu al
+  const loc = await Location.getCurrentPositionAsync({});
+
+  // 2️⃣ SONRA Firestore’a yaz
+  await addDoc(collection(db, "chats", chatId!, "messages"), {
+    type: "location",
+    lat: loc.coords.latitude,
+    lng: loc.coords.longitude,
+    senderId: deviceId,
+    readBy: [deviceId],
+    createdAt: serverTimestamp(),
+    deleted: false,
+  });
+
+  // 3️⃣ Modal kapat
+  setLocationModalOpen(false);
+}
+
+  
   const [isRecordingUI, setIsRecordingUI] = useState(false);
   useEffect(() => {
   Audio.setAudioModeAsync({
@@ -90,9 +131,21 @@ export default function ChatRoom() {
 const auth = getAuth();
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
 const [isRecording, setIsRecording] = useState(false);
+const [locationModalOpen, setLocationModalOpen] = useState(false);
+const [someoneRecording, setSomeoneRecording] = useState(false);
+
   
 
 async function startRecording() {
+  setSomeoneRecording(true);
+  if (!chatId || !deviceId) return;
+  await setDoc(
+  doc(db, "chats", chatId, "typing", deviceId),
+  {
+    type: "voice",
+    updatedAt: serverTimestamp(),
+  }
+);
   try {
     const permission = await Audio.requestPermissionsAsync();
     if (!permission.granted) return;
@@ -117,7 +170,13 @@ async function startRecording() {
 
 async function stopRecording() {
   try {
-    if (!recording) return; // ✅ TS HATASI BURADA BİTİYOR
+
+    if (chatId && deviceId) {
+      await deleteDoc(doc(db, "chats", chatId, "typing", deviceId));
+      
+    }
+
+    if (!recording) return;
 
     setIsRecording(false);
     await recording.stopAndUnloadAsync();
@@ -143,6 +202,7 @@ async function stopRecording() {
   nick: nick,              // ✅ düzeltildi
   createdAt: serverTimestamp(),
 });
+setSomeoneRecording(false);
 
     // 🔊 KAYITTAN ÇIK → ÇALMA MODU
     await Audio.setAudioModeAsync({
@@ -153,6 +213,20 @@ async function stopRecording() {
     setRecording(null);
   } catch (e) {
     console.log("Ses gönderme hatası:", e);
+  }
+}
+async function cancelRecording() {
+  try {
+    if (!recording) return;
+    if (chatId && deviceId) {
+  await deleteDoc(doc(db, "chats", chatId, "typing", deviceId));
+}
+
+    await recording.stopAndUnloadAsync();
+    setRecording(null);
+    setIsRecording(false);
+  } catch (e) {
+    console.log("Kayıt iptal hatası:", e);
   }
 }
   const pulseTop = useRef(new Animated.Value(1)).current;
@@ -176,8 +250,23 @@ useEffect(() => {
   const router = useRouter();
   const params = useLocalSearchParams<{ code?: string | string[] }>();
   const chatId = Array.isArray(params.code) ? params.code[0] : params.code;
-
   const [deviceId, setDeviceId] = useState<string | null>(null);
+  useEffect(() => {
+  if (!chatId || !deviceId) return;
+
+  const typingRef = collection(db, "chats", chatId, "typing");
+
+  const unsub = onSnapshot(typingRef, (snap) => {
+    const otherRecording = snap.docs.some(
+      (d) => d.id !== deviceId && d.data()?.type === "voice"
+    );
+    setSomeoneRecording(otherRecording);
+  });
+
+  return () => unsub();
+}, [chatId, deviceId]);
+
+  
   const [ownerId, setOwnerId] = useState<string | null>(null);
 
   const [nick, setNick] = useState("");
@@ -357,6 +446,7 @@ if (activeCount >= 8) {
   }, [ready, chatId, deviceId, closed, blockedIds]);
 
   const handleTyping = async (v: string) => {
+    bumpActive();
     if (!chatId || !deviceId || closed) return;
     setText(v);
 
@@ -377,6 +467,7 @@ if (activeCount >= 8) {
   };
 
   const sendMessage = async () => {
+    await bumpActive();
     if (!text.trim() || !chatId || !deviceId || closed) return;
 
     await addDoc(collection(db, "chats", chatId, "messages"), {
@@ -581,7 +672,9 @@ setNickModalVisible(false);
           <Text style={{ color: "#4FC3F7", marginTop: 4 }}>
             Katılımcılar: {usersInRoom.length}
           </Text>
+          
           <Animated.View
+
   style={{
     marginTop: 6,
     alignSelf: "flex-start",
@@ -641,7 +734,79 @@ setNickModalVisible(false);
           const readCount = item.readBy?.length || 0;
 
           if (!isMe && blockedIds.includes(item.senderId)) return null;
+if (item.type === "location") {
+  if (!isMe && !item.readBy?.includes(deviceId)) {
+  updateDoc(
+    doc(db, "chats", chatId!, "messages", item.id),
+    { readBy: arrayUnion(deviceId) }
+  ).catch(() => {});
+}
+  if (item.deleted) return null;
+  const url = `https://www.google.com/maps?q=${item.lat},${item.lng}`;
 
+  return (
+    <View style={{ alignSelf: isMe ? "flex-end" : "flex-start", marginBottom: 12 }}>
+      <TouchableOpacity
+        onPress={() => Linking.openURL(url)}
+        onLongPress={() => {
+          if (!isMe) return;
+
+          Alert.alert(
+            "Konumu Sil",
+            "Bu konumu herkes için silmek istiyor musun?",
+            [
+              { text: "İptal", style: "cancel" },
+              {
+                text: "Sil",
+                style: "destructive",
+                onPress: async () => {
+                  await updateDoc(
+                    doc(db, "chats", chatId!, "messages", item.id),
+                    { deleted: true }
+                  );
+                },
+              },
+            ]
+          );
+        }}
+        style={{
+          backgroundColor: "#1C1C22",
+          padding: 12,
+          borderRadius: 8,
+          maxWidth: "70%",
+        }}
+      >
+        <Text style={{ color: "#fff" }}>📍 Konumu görüntüle</Text>
+      </TouchableOpacity>
+      
+
+      {/* ⏱️ SAAT + OKUNDU */}
+      <View
+        style={{
+          flexDirection: "row",
+          gap: 6,
+          marginTop: 4,
+          alignSelf: isMe ? "flex-end" : "flex-start",
+        }}
+      >
+        <Text style={{ fontSize: 11, color: "#888" }}>
+          {formatTime(item.createdAt)}
+        </Text>
+
+        {isMe && (
+          <Text
+            style={{
+              fontSize: 11,
+              color: readCount > 1 ? "#4FC3F7" : "#666",
+            }}
+          >
+            {readCount > 1 ? "✓✓" : "✓"}
+          </Text>
+        )}
+      </View>
+    </View>
+  );
+}
           if (item.type === "voice") {
   return (
     <View style={{ alignSelf: isMe ? "flex-end" : "flex-start", marginBottom: 12 }}>
@@ -778,6 +943,21 @@ return (
         }}
       />
       {/* INPUT BAR */}
+      {someoneRecording && (
+  <View style={{ paddingHorizontal: 14, marginBottom: 8 }}>
+    <Text style={{ color: "#aaa", fontSize: 12 }}>
+      ses kaydediliyor...
+    </Text>
+  </View>
+)}
+
+{someoneTyping && !someoneRecording && (
+  <View style={{ paddingHorizontal: 14, marginBottom: 8 }}>
+    <Text style={{ color: "#aaa", fontSize: 12 }}>
+      yazıyor...
+    </Text>
+  </View>
+)}
 {!closed && (
   <View
     style={{
@@ -789,6 +969,67 @@ return (
       backgroundColor: "#111117",
     }}
   >
+    {locationModalOpen && (
+  <Modal
+    transparent
+    animationType="slide"
+    onRequestClose={() => setLocationModalOpen(false)}
+  >
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: "rgba(0,0,0,0.6)",
+        justifyContent: "center",
+        alignItems: "center",
+      }}
+    >
+      <View
+        style={{
+          backgroundColor: "#111",
+          padding: 20,
+          borderRadius: 12,
+          width: "80%",
+        }}
+      >
+        <TouchableOpacity
+  onPress={requestLocation}
+  style={{
+    padding: 12,
+    backgroundColor: "#1C1C22",
+    borderRadius: 8,
+    marginBottom: 12,
+    alignItems: "center",
+  }}
+>
+  <Text style={{ color: "#fff" }}>
+    📍 Konumu gönder
+  </Text>
+</TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => setLocationModalOpen(false)}
+          style={{
+            padding: 10,
+            backgroundColor: "#1C1C22",
+            borderRadius: 8,
+          }}
+        >
+          <Text style={{ color: "#fff", textAlign: "center" }}>
+            Kapat
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  </Modal>
+)}
+    <TouchableOpacity
+  onPress={() => {
+  setLocationModalOpen(true);
+}}
+  
+  style={{ marginRight: 10 }}
+>
+  <Ionicons name="location-outline" size={24} color="#aaa" />
+</TouchableOpacity>
     {/* 🎙️ KAYIT YOKKEN */}
     {!isRecording && (
       <>
@@ -841,7 +1082,7 @@ return (
           paddingVertical: 10,
         }}
       >
-        <TouchableOpacity onPress={stopRecording} style={{ marginRight: 12 }}>
+        <TouchableOpacity onPress={cancelRecording} style={{ marginRight: 12 }}>
           <Ionicons name="trash" size={22} color="#f55" />
         </TouchableOpacity>
 
