@@ -76,6 +76,7 @@ async function setStoredNick(key: string, value: string) {
 }
 
 export default function ChatRoom() {
+  const ownerUidRef = useRef<string | null>(null);
   // ✅ AKTİFLİK GÜNCELLE (pasif düşmeyi engeller)
 async function bumpActive() {
   try {
@@ -251,6 +252,7 @@ useEffect(() => {
   const params = useLocalSearchParams<{ code?: string | string[] }>();
   const chatId = Array.isArray(params.code) ? params.code[0] : params.code;
   const [deviceId, setDeviceId] = useState<string | null>(null);
+  const [blockedIds, setBlockedIds] = useState<string[]>([]);
   useEffect(() => {
   if (!chatId || !deviceId) return;
 
@@ -258,14 +260,16 @@ useEffect(() => {
 
   const unsub = onSnapshot(typingRef, (snap) => {
     const otherRecording = snap.docs.some(
-      (d) => d.id !== deviceId && d.data()?.type === "voice"
-    );
-    setSomeoneRecording(otherRecording);
+  (d) =>
+    d.id !== deviceId &&
+    d.data()?.type === "voice" &&
+    !blockedIds.includes(d.id)
+);
+setSomeoneRecording(otherRecording);
   });
 
   return () => unsub();
-}, [chatId, deviceId]);
-
+}, [chatId, deviceId, blockedIds]);
   
   const [ownerId, setOwnerId] = useState<string | null>(null);
 
@@ -282,7 +286,7 @@ useEffect(() => {
   const [usersInRoom, setUsersInRoom] = useState<
     { id: string; nick: string }[]
   >([]);
-  const [blockedIds, setBlockedIds] = useState<string[]>([]);
+  
 
   const typingTimeout = useRef<any>(null);
 
@@ -312,6 +316,7 @@ useEffect(() => {
         return;
       }
       const data = snap.data();
+      ownerUidRef.current = data.ownerId;
 
       if (data.closed) {
         Alert.alert("Sohbet kapalı", "Bu sohbet kalıcı olarak kapatıldı");
@@ -319,14 +324,11 @@ useEffect(() => {
         return;
       }
 
-      if (data.locked) {
-        const meInside = await getDoc(userDoc);
-        if (!meInside.exists()) {
-          Alert.alert("Oda Kilitli", "Bu oda kilitli olduğu için giriş yapılamaz.");
-          router.replace("/");
-          return;
-        }
-      }
+      if (data.locked && auth.currentUser?.uid !== data.ownerId) {
+  Alert.alert("Oda Kilitli", "Bu oda kilitli.");
+  router.replace("/");
+  return;
+}
       // 🔐 GERÇEK 8 KİŞİ LİMİTİ
 const usersSnap = await getDocs(usersRef);
 
@@ -398,6 +400,7 @@ if (activeCount >= 8) {
     }, 10000);
 
     return () => {
+      
       deleteDoc(userDoc).catch(() => {});
       clearInterval(interval);
       unsub();
@@ -620,8 +623,8 @@ const stored = JSON.parse(
 const updated = Array.from(new Set([chatId, ...stored]));
 await AsyncStorage.setItem("myChats", JSON.stringify(updated));
 
-// ✅ HAK SADECE BURADA DÜŞER
-if (auth.currentUser?.uid) {
+// ✅ HAK SADECE ODA SAHİBİ İSE DÜŞER
+if (auth.currentUser?.uid === ownerId) {
   const userRef = doc(db, "users", auth.currentUser.uid);
   await updateDoc(userRef, {
     roomsUsed: increment(1),

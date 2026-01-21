@@ -152,21 +152,32 @@ export default function Index() {
     const c = code.trim().toUpperCase();
     if (!c) return;
 
-    const chatRef = doc(db, "chats", c);
-    const snap = await getDoc(chatRef);
+   const chatRef = doc(db, "chats", c);
+const snap = await getDoc(chatRef);
+
+if (!snap.exists()) {
+  Alert.alert("Geçersiz Kod", "Bu davet koduna ait bir oda yok.");
+  return;
+}
+
+const data = snap.data();
+
+if (data?.locked && auth.currentUser?.uid !== data?.ownerId) {
+  Alert.alert("Oda Kilitli", "Bu oda kilitli.");
+  router.replace("/");
+  return;
+}
+
+router.push(`/chat/${c}`);
     if (!snap.exists()) {
       Alert.alert("Geçersiz Kod", "Bu davet koduna ait bir oda yok.");
       return;
     }
 
-    const count = snap.data().participantsCount || 0;
-    if (count >= MAX_PARTICIPANTS) {
-      Alert.alert("Dolu Oda", "Bu oda dolu. (Maks. 8 kişi)");
-      return;
-    }
+    
 
     
-    await saveChatToList(c);
+    
     router.push(`/chat/${c}`);
   };
 

@@ -1,5 +1,13 @@
 import { AVPlaybackStatus } from "expo-av";
-import { arrayUnion, deleteDoc, doc, updateDoc } from "firebase/firestore";
+import {
+  addDoc,
+  arrayUnion,
+  collection,
+  deleteDoc,
+  doc,
+  serverTimestamp,
+  updateDoc,
+} from "firebase/firestore";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -59,25 +67,54 @@ export default function VoiceMessage({
     });
   }
 
-  // ❌❌❌ SİLME (UZUN BASMA)
-  function handleDelete() {
-    if (!isMe) return;
+  // 🔴 UZUN BASMA MENÜSÜ
+  function handleLongPress() {
+    // KENDİ SESİ
+    if (isMe) {
+      Alert.alert(
+        "Sesli mesaj",
+        "Bu mesaj silinsin mi?",
+        [
+          { text: "İptal", style: "cancel" },
+          {
+            text: "Sil",
+            style: "destructive",
+            onPress: async () => {
+              try {
+                await deleteDoc(
+                  doc(db, "chats", chatId, "messages", messageId)
+                );
+              } catch (e) {
+                console.log("Ses silme hatası:", e);
+              }
+            },
+          },
+        ]
+      );
+      return;
+    }
 
+    // BAŞKASININ SESİ → ŞİKAYET
     Alert.alert(
-      "Sesli mesaj silinsin mi?",
-      "Bu işlem geri alınamaz",
+      "Sesli mesaj",
+      "Bu kullanıcıyı şikayet etmek istiyor musun?",
       [
         { text: "İptal", style: "cancel" },
         {
-          text: "Sil",
+          text: "Şikayet Et",
           style: "destructive",
           onPress: async () => {
             try {
-              await deleteDoc(
-                doc(db, "chats", chatId, "messages", messageId)
-              );
+              await addDoc(collection(db, "reports"), {
+                chatId,
+                reportedUser: "voice-message",
+                reporter: deviceId,
+                messageId,
+                type: "voice",
+                createdAt: serverTimestamp(),
+              });
             } catch (e) {
-              console.log("Ses silme hatası:", e);
+              console.log("Ses şikayet hatası:", e);
             }
           },
         },
@@ -100,7 +137,6 @@ export default function VoiceMessage({
 
     await playAudio({
       uri: audioUrl,
-
       onStatus: (status: AVPlaybackStatus) => {
         if (!status.isLoaded) return;
 
@@ -120,7 +156,6 @@ export default function VoiceMessage({
           lastPositionRef.current = 0;
         }
       },
-
       onStop: () => {
         setIsPlaying(false);
         setPosition(lastPositionRef.current);
@@ -136,9 +171,10 @@ export default function VoiceMessage({
     <View style={[styles.container, isMe ? styles.me : styles.other]}>
       <TouchableOpacity
         onPress={togglePlay}
-        onLongPress={handleDelete}
+        onLongPress={handleLongPress}
         activeOpacity={0.8}
         style={styles.play}
+        
       >
         {loading ? (
           <ActivityIndicator color="#fff" />
