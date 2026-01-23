@@ -108,6 +108,7 @@ async function bumpActive() {
     lat: loc.coords.latitude,
     lng: loc.coords.longitude,
     senderId: deviceId,
+    nick: nick,
     readBy: [deviceId],
     createdAt: serverTimestamp(),
     deleted: false,
@@ -749,6 +750,18 @@ if (item.type === "location") {
 
   return (
     <View style={{ alignSelf: isMe ? "flex-end" : "flex-start", marginBottom: 12 }}>
+      {!!item.nick && (
+  <Text
+    style={{
+      color: "#4FC3F7",
+      fontWeight: "700",
+      marginBottom: 4,
+      alignSelf: isMe ? "flex-end" : "flex-start",
+    }}
+  >
+    {item.nick}
+  </Text>
+)}
       <TouchableOpacity
         onPress={() => Linking.openURL(url)}
         onLongPress={() => {
@@ -944,12 +957,13 @@ return (
             </View>
           );
         }}
+        
       />
       {/* INPUT BAR */}
-      {someoneRecording && (
+      {(isRecording || someoneRecording) && (
   <View style={{ paddingHorizontal: 14, marginBottom: 8 }}>
     <Text style={{ color: "#aaa", fontSize: 12 }}>
-      ses kaydediliyor...
+      🎙️ Ses kaydı alınıyor…
     </Text>
   </View>
 )}

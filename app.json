@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Fısıltı",
-    "slug": "cevremClean",
+    "slug": "fisilti",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -10,14 +10,17 @@
     "newArchEnabled": true,
 
     "splash": {
-  "backgroundColor": "#000000"
-},
+      "backgroundColor": "#000000"
+    },
 
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.fisilti.app",
+      "buildNumber": "1",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSMicrophoneUsageDescription": "Sesli mesaj göndermek için mikrofon erişimi gereklidir.",
+        "NSLocationWhenInUseUsageDescription": "Konum paylaşımı için konum erişimi gereklidir."
       }
     },
 

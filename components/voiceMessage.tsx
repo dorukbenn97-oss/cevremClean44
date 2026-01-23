@@ -95,7 +95,7 @@ export default function VoiceMessage({
     }
 
     // BAŞKASININ SESİ → ŞİKAYET
-    Alert.alert(
+   Alert.alert(
       "Sesli mesaj",
       "Bu kullanıcıyı şikayet etmek istiyor musun?",
       [
@@ -113,6 +113,10 @@ export default function VoiceMessage({
                 type: "voice",
                 createdAt: serverTimestamp(),
               });
+              Alert.alert(
+  "Teşekkürler",
+  "Bildiriminiz için teşekkür ederiz."
+);
             } catch (e) {
               console.log("Ses şikayet hatası:", e);
             }
@@ -121,6 +125,7 @@ export default function VoiceMessage({
       ]
     );
   }
+
 
   async function togglePlay() {
     if (loading) return;
@@ -199,8 +204,8 @@ export default function VoiceMessage({
         </View>
 
         <Text style={styles.time}>
-          {formatTime(position)} / {formatTime(realDuration)}
-        </Text>
+  {realDuration > 0 ? formatTime(realDuration) : "Sesli mesaj"}
+</Text>
       </View>
     </View>
   );

@@ -123,13 +123,13 @@ export default function Index() {
 
     if (roomsUsed >= maxRooms) {
   Alert.alert(
-  "Aktif Odan Var",
-  "Şu anda 1 aktif odan var.\nÜcretsiz kullanıcılar aynı anda yalnızca 1 oda açabilir.\n\nPremium ile aynı anda 5 oda açabilirsin.",
-  [
-    { text: "Vazgeç", style: "cancel" },
-    { text: "⭐ Premium’a Geç", onPress: () => router.push("/premium") },
-  ]
-);
+    "Aktif Odan Var",
+    "Şu anda 1 aktif odan var.\n⭐ Premium ile aynı anda 5 oda açabilirsin.",
+    [
+      { text: "Vazgeç", style: "cancel" },
+      { text: "⭐ Premium’a Geç", onPress: () => router.push("/premium") },
+    ]
+  );
   return;
 }
 
