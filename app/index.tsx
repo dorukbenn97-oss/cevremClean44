@@ -123,13 +123,13 @@ export default function Index() {
 
     if (roomsUsed >= maxRooms) {
   Alert.alert(
-    "Aktif Odan Var",
-    "Şu anda 1 aktif odan var.\n⭐ Premium ile aynı anda 5 oda açabilirsin.",
-    [
-      { text: "Vazgeç", style: "cancel" },
-      { text: "⭐ Premium’a Geç", onPress: () => router.push("/premium") },
-    ]
-  );
+  "Aktif Odan Var",
+  "Şu anda 1 aktif odan var.\nÜcretsiz kullanıcılar aynı anda yalnızca 1 oda açabilir.\n\nPremium ile aynı anda 5 oda açabilirsin.",
+  [
+    { text: "Vazgeç", style: "cancel" },
+    { text: "⭐ Premium’a Geç", onPress: () => router.push("/premium") },
+  ]
+);
   return;
 }
 
@@ -148,38 +148,29 @@ export default function Index() {
   };
 
   /* 🔹 JOIN */
-  const goChatIfExists = async () => {
-    const c = code.trim().toUpperCase();
-    if (!c) return;
+ const goChatIfExists = async () => {
+  const c = code.trim().toUpperCase(); // ← BU SATIR EKSİKTİ
+  if (!c) return;
 
-   const chatRef = doc(db, "chats", c);
-const snap = await getDoc(chatRef);
+  const chatRef = doc(db, "chats", c);
+  const snap = await getDoc(chatRef);
 
-if (!snap.exists()) {
-  Alert.alert("Geçersiz Kod", "Bu davet koduna ait bir oda yok.");
-  return;
-}
+  if (!snap.exists()) {
+    Alert.alert("Geçersiz Kod", "Bu davet koduna ait bir oda yok.");
+    return;
+  }
 
-const data = snap.data();
+  const data = snap.data();
 
-if (data?.locked && auth.currentUser?.uid !== data?.ownerId) {
-  Alert.alert("Oda Kilitli", "Bu oda kilitli.");
-  router.replace("/");
-  return;
-}
+  if (data?.locked && auth.currentUser?.uid !== data?.ownerId) {
+    Alert.alert("Oda Kilitli", "Bu oda kilitli.");
+    router.replace("/");
+    return;
+  }
 
-router.push(`/chat/${c}`);
-    if (!snap.exists()) {
-      Alert.alert("Geçersiz Kod", "Bu davet koduna ait bir oda yok.");
-      return;
-    }
+  router.push(`/chat/${c}`);
+};
 
-    
-
-    
-    
-    router.push(`/chat/${c}`);
-  };
 
   /* 🟦 SEÇİM */
   const toggleSelect = (code: string) => {

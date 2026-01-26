@@ -26,8 +26,11 @@ import { useEffect, useRef, useState } from "react";
 import {
   Alert,
   Animated,
+  AppState,
   FlatList,
-  KeyboardAvoidingView, Linking, Modal,
+  KeyboardAvoidingView,
+  Linking,
+  Modal,
   Platform,
   Text,
   TextInput,
@@ -76,7 +79,8 @@ async function setStoredNick(key: string, value: string) {
 }
 
 export default function ChatRoom() {
-  const ownerUidRef = useRef<string | null>(null);
+  
+  
   // ✅ AKTİFLİK GÜNCELLE (pasif düşmeyi engeller)
 async function bumpActive() {
   try {
@@ -92,6 +96,7 @@ async function bumpActive() {
     );
   } catch (e) {}
 }
+
   async function requestLocation() {
   const { status } = await Location.requestForegroundPermissionsAsync();
   if (status !== "granted") {
@@ -112,7 +117,16 @@ async function bumpActive() {
     readBy: [deviceId],
     createdAt: serverTimestamp(),
     deleted: false,
+    replyTo: replyTo
+  ? {
+      id: replyTo.id,
+      text: replyTo.text || "",
+      type: replyTo.type || "text",
+      nick: replyTo.nick || "",
+    }
+  : null,
   });
+  setReplyTo(null);
 
   // 3️⃣ Modal kapat
   setLocationModalOpen(false);
@@ -120,26 +134,21 @@ async function bumpActive() {
 
   
   const [isRecordingUI, setIsRecordingUI] = useState(false);
-  useEffect(() => {
-  Audio.setAudioModeAsync({
-    allowsRecordingIOS: false,
-    playsInSilentModeIOS: true,
-    staysActiveInBackground: false,
-  });
-}, []);
+  
   
 
 // tekrar getStorage YOK
 const auth = getAuth();
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
 const [isRecording, setIsRecording] = useState(false);
+
 const [locationModalOpen, setLocationModalOpen] = useState(false);
 const [someoneRecording, setSomeoneRecording] = useState(false);
 
   
 
 async function startRecording() {
-  setSomeoneRecording(true);
+ 
   if (!chatId || !deviceId) return;
   await setDoc(
   doc(db, "chats", chatId, "typing", deviceId),
@@ -162,7 +171,7 @@ async function startRecording() {
       Audio.RecordingOptionsPresets.HIGH_QUALITY
     );
     await rec.startAsync();
-
+    setSomeoneRecording(true);
     setRecording(rec);
     setIsRecording(true);
   } catch (err) {
@@ -204,6 +213,7 @@ async function stopRecording() {
   nick: nick,              // ✅ düzeltildi
   createdAt: serverTimestamp(),
 });
+setReplyTo(null);
 setSomeoneRecording(false);
 
     // 🔊 KAYITTAN ÇIK → ÇALMA MODU
@@ -253,7 +263,24 @@ useEffect(() => {
   const params = useLocalSearchParams<{ code?: string | string[] }>();
   const chatId = Array.isArray(params.code) ? params.code[0] : params.code;
   const [deviceId, setDeviceId] = useState<string | null>(null);
+  // 🔥 ODAYA GİRER GİRMEZ AKTİF YAP
+useEffect(() => {
+  if (!chatId || !deviceId) return;
+  bumpActive();
+}, [chatId, deviceId]);
+
+// 🔁 FOREGROUND HEARTBEAT (2. sigorta)
+useEffect(() => {
+  if (!chatId || !deviceId) return;
+
+  const interval = setInterval(() => {
+    bumpActive();
+  }, 8000); // 8 sn
+
+  return () => clearInterval(interval);
+}, [chatId, deviceId]);
   const [blockedIds, setBlockedIds] = useState<string[]>([]);
+ 
   useEffect(() => {
   if (!chatId || !deviceId) return;
 
@@ -278,6 +305,7 @@ setSomeoneRecording(otherRecording);
   const [text, setText] = useState("");
   const [messages, setMessages] = useState<any[]>([]);
   const [ready, setReady] = useState(false);
+  const [replyTo, setReplyTo] = useState<any | null>(null);
   const [someoneTyping, setSomeoneTyping] = useState(false);
   const [nickModalVisible, setNickModalVisible] = useState(false);
 
@@ -299,6 +327,23 @@ setSomeoneRecording(otherRecording);
   useEffect(() => {
     getDeviceId().then(setDeviceId);
   }, []);
+  useEffect(() => {
+  if (!chatId || !deviceId) return;
+
+  const sub = AppState.addEventListener("change", (state) => {
+    if (state === "active") {
+      // 🔥 UI anında aktif
+      
+
+      // 🔥 Firestore gerçek aktiflik
+      bumpActive();
+    } else {
+      
+    }
+  });
+
+  return () => sub.remove();
+}, [chatId, deviceId]);
 
   /* CHAT META + GİRİŞ KONTROLÜ */
   useEffect(() => {
@@ -317,7 +362,7 @@ setSomeoneRecording(otherRecording);
         return;
       }
       const data = snap.data();
-      ownerUidRef.current = data.ownerId;
+      
 
       if (data.closed) {
         Alert.alert("Sohbet kapalı", "Bu sohbet kalıcı olarak kapatıldı");
@@ -391,19 +436,12 @@ if (activeCount >= 8) {
       setUsersInRoom(activeUsers);
     });
 
-    const interval = setInterval(() => {
-      if (nick)
-        setDoc(
-          userDoc,
-          { nick, lastActive: serverTimestamp() },
-          { merge: true }
-        ).catch(() => {});
-    }, 10000);
+    
 
     return () => {
       
-      deleteDoc(userDoc).catch(() => {});
-      clearInterval(interval);
+      
+      
       unsub();
     };
   }, [ready, chatId, deviceId, nick]);
@@ -422,14 +460,17 @@ if (activeCount >= 8) {
     .map((d) => ({ id: d.id, ...d.data() }))
     .filter((m) => !(m as any).deleted);
 
-  snap.docs.forEach((msgDoc) => {
-    const msg = msgDoc.data();
-    if (msg.senderId !== deviceId) {
-      updateDoc(msgDoc.ref, {
-        readBy: arrayUnion(deviceId),
-      });
-    }
-  });
+ snap.docs.forEach((msgDoc) => {
+  const msg = msgDoc.data();
+  if (
+    msg.senderId !== deviceId &&
+    !msg.readBy?.includes(deviceId)
+  ) {
+    updateDoc(msgDoc.ref, {
+      readBy: arrayUnion(deviceId),
+    });
+  }
+});
 
   setMessages(list);
 });
@@ -450,7 +491,7 @@ if (activeCount >= 8) {
   }, [ready, chatId, deviceId, closed, blockedIds]);
 
   const handleTyping = async (v: string) => {
-    bumpActive();
+    
     if (!chatId || !deviceId || closed) return;
     setText(v);
 
@@ -475,16 +516,26 @@ if (activeCount >= 8) {
     if (!text.trim() || !chatId || !deviceId || closed) return;
 
     await addDoc(collection(db, "chats", chatId, "messages"), {
-      text,
-      senderId: deviceId,
-      nick,
-      createdAt: serverTimestamp(),
-      readBy: [deviceId],
-      deleted: false,
-    });
+  text,
+  senderId: deviceId,
+  nick,
+  createdAt: serverTimestamp(),
+  readBy: [deviceId],
+  deleted: false,
+
+  replyTo: replyTo
+    ? {
+        id: replyTo.id,
+        text: replyTo.text || "",
+        type: replyTo.type || "text",
+        nick: replyTo.nick || "",
+      }
+    : null,
+});
 
     await deleteDoc(doc(db, "chats", chatId, "typing", deviceId));
     setText("");
+    setReplyTo(null);
   };
 
   const deleteMessageForEveryone = async (msg: any) => {
@@ -674,7 +725,7 @@ setNickModalVisible(false);
             </TouchableOpacity>
           </View>
           <Text style={{ color: "#4FC3F7", marginTop: 4 }}>
-            Katılımcılar: {usersInRoom.length}
+           Katılımcılar: {usersInRoom.length}
           </Text>
           
           <Animated.View
@@ -734,9 +785,10 @@ setNickModalVisible(false);
   contentContainerStyle={{ padding: 16, flexGrow: 1, justifyContent: "flex-end" }}
   removeClippedSubviews={false}
   renderItem={({ item }) => {
+    
           const isMe = item.senderId === deviceId;
           const readCount = item.readBy?.length || 0;
-
+         
           if (!isMe && blockedIds.includes(item.senderId)) return null;
 if (item.type === "location") {
   if (!isMe && !item.readBy?.includes(deviceId)) {
@@ -763,28 +815,66 @@ if (item.type === "location") {
   </Text>
 )}
       <TouchableOpacity
-        onPress={() => Linking.openURL(url)}
-        onLongPress={() => {
-          if (!isMe) return;
+  onPress={() => Linking.openURL(url)}
+  onLongPress={() => {
+  // 🧍‍♂️ KENDİ KONUMU
+  if (isMe) {
+    Alert.alert(
+      "Konumu Sil",
+      "Bu konumu herkes için silmek istiyor musun?",
+      [
+        { text: "İptal", style: "cancel" },
+        {
+          text: "Sil",
+          style: "destructive",
+          onPress: async () => {
+            await updateDoc(
+              doc(db, "chats", chatId!, "messages", item.id),
+              { deleted: true }
+            );
+          },
+        },
+      ]
+    );
+    return;
+  }
 
-          Alert.alert(
-            "Konumu Sil",
-            "Bu konumu herkes için silmek istiyor musun?",
-            [
-              { text: "İptal", style: "cancel" },
-              {
-                text: "Sil",
-                style: "destructive",
-                onPress: async () => {
-                  await updateDoc(
-                    doc(db, "chats", chatId!, "messages", item.id),
-                    { deleted: true }
-                  );
-                },
-              },
-            ]
+  // 👤 BAŞKASININ KONUMU
+  Alert.alert(
+    "Seçenekler",
+    "",
+    [
+      { text: "İptal", style: "cancel" },
+
+      {
+        text: "Şikayet Et",
+        style: "destructive",
+        onPress: async () => {
+          await addDoc(collection(db, "reports"), {
+            chatId,
+            messageId: item.id,
+            type: "location",
+            reportedBy: deviceId,
+            createdAt: serverTimestamp(),
+          });
+
+          Alert.alert("Teşekkürler", "Konum bildirildi.");
+        },
+      },
+
+      {
+        text: "Engelle",
+        onPress: () => {
+          setBlockedIds((prev) =>
+            prev.includes(item.senderId)
+              ? prev
+              : [...prev, item.senderId]
           );
-        }}
+        },
+      },
+    ]
+  );
+}}
         style={{
           backgroundColor: "#1C1C22",
           padding: 12,
@@ -832,13 +922,19 @@ if (item.type === "location") {
         </Text>
       )}
 
-      <VoiceMessage
+     <VoiceMessage
   chatId={chatId!}
-  messageId={item.id}      // ✅ EKLENDİ
-  deviceId={deviceId!}      // ✅ EKLENDİ
+  messageId={item.id}
+  deviceId={deviceId!}
   audioUrl={item.audioUrl}
   duration={item.duration || 0}
   isMe={isMe}
+  senderId={item.senderId}
+  onBlock={(sid) =>
+    setBlockedIds((prev) =>
+      prev.includes(sid) ? prev : [...prev, sid]
+    )
+  }
 />
 
       <View style={{ flexDirection: "row", gap: 6, alignSelf: isMe ? "flex-end" : "flex-start", marginTop: 2 }}>
@@ -889,19 +985,23 @@ return (
                 }}
                 onLongPress={() => {
                   if (item.senderId === deviceId) return;
-                  Alert.alert("Seçenekler", "", [
-                    {
-                      text: "Engelle",
-                      onPress: () =>
-                        setBlockedIds((prev) =>
-                          prev.includes(item.senderId)
-                            ? prev
-                            : [...prev, item.senderId]
-                        ),
-                    },
-                    { text: "Şikayet Et", onPress: () => reportUser(item) },
-                    { text: "İptal", style: "cancel" },
-                  ]);
+                 Alert.alert("Seçenekler", "", [
+  {
+    text: "Yanıtla",
+    onPress: () => setReplyTo(item),
+  },
+  {
+    text: "Engelle",
+    onPress: () =>
+      setBlockedIds((prev) =>
+        prev.includes(item.senderId)
+          ? prev
+          : [...prev, item.senderId]
+      ),
+  },
+  { text: "Şikayet Et", onPress: () => reportUser(item) },
+  { text: "İptal", style: "cancel" },
+]);
                 }}
               >
                 <Text
@@ -927,9 +1027,30 @@ return (
                   maxWidth: "80%",
                 }}
               >
-                <Text style={{ color: "#fff" }}>
-                  {item.text || "Bu mesaj silindi"}
-                </Text>
+                
+<Text style={{ color: "#fff" }}>
+  {item.text || "Bu mesaj silindi"}
+</Text>
+{item.replyTo && (
+  <View
+    style={{
+      borderLeftWidth: 3,
+      borderLeftColor: "#4FC3F7",
+      paddingLeft: 6,
+      marginBottom: 4,
+    }}
+  >
+    <Text style={{ color: "#4FC3F7", fontSize: 11 }}>
+      Yanıtlanan: {item.replyTo.nick || "Kullanıcı"}
+    </Text>
+
+    <Text style={{ color: "#aaa", fontSize: 11 }}>
+      {item.replyTo.text || "Mesaj"}
+    </Text>
+    
+  </View>
+  
+)}
               </TouchableOpacity>
 
               <View
@@ -1056,7 +1177,38 @@ return (
         >
           <Ionicons name="mic" size={24} color="#aaa" />
         </TouchableOpacity>
+{replyTo && (
+  <View
+    style={{
+      backgroundColor: "#1C1C22",
+      padding: 8,
+      borderLeftWidth: 3,
+      borderLeftColor: "#4FC3F7",
+      marginBottom: 6,
+      borderRadius: 6,
+    }}
+  >
+    <Text style={{ color: "#4FC3F7", fontSize: 12 }}>
+      Yanıtlanan: {replyTo.nick || "Kullanıcı"}
+    </Text>
 
+    <Text style={{ color: "#aaa", fontSize: 12 }}>
+      {replyTo.text
+        ? replyTo.text
+        : replyTo.type === "voice"
+        ? "🎤 Sesli mesaj"
+        : replyTo.type === "location"
+        ? "📍 Konum"
+        : "Mesaj"}
+    </Text>
+
+    <TouchableOpacity onPress={() => setReplyTo(null)}>
+      <Text style={{ color: "#FF453A", fontSize: 12, marginTop: 4 }}>
+        Yanıtı iptal et
+      </Text>
+    </TouchableOpacity>
+  </View>
+)}
         <TextInput
           value={text}
           onChangeText={handleTyping}

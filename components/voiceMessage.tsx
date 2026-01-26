@@ -20,13 +20,16 @@ import {
 import { db } from "../firebaseConfig";
 import { playAudio, stopAudio } from "./AudioPlayerManager";
 
-type VoiceMessageProps = {
+ type VoiceMessageProps = {
   chatId: string;
   messageId: string;
   deviceId: string;
   audioUrl: string;
   duration: number;
   isMe?: boolean;
+
+  senderId: string;
+  onBlock: (senderId: string) => void;
 };
 
 export default function VoiceMessage({
@@ -36,6 +39,8 @@ export default function VoiceMessage({
   audioUrl,
   duration,
   isMe = false,
+  senderId,
+  onBlock,
 }: VoiceMessageProps) {
   const markedReadRef = useRef(false);
 
@@ -93,39 +98,42 @@ export default function VoiceMessage({
       );
       return;
     }
-
+    
+  
     // BAŞKASININ SESİ → ŞİKAYET
    Alert.alert(
-      "Sesli mesaj",
-      "Bu kullanıcıyı şikayet etmek istiyor musun?",
-      [
-        { text: "İptal", style: "cancel" },
-        {
-          text: "Şikayet Et",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await addDoc(collection(db, "reports"), {
-                chatId,
-                reportedUser: "voice-message",
-                reporter: deviceId,
-                messageId,
-                type: "voice",
-                createdAt: serverTimestamp(),
-              });
-              Alert.alert(
-  "Teşekkürler",
-  "Bildiriminiz için teşekkür ederiz."
-);
-            } catch (e) {
-              console.log("Ses şikayet hatası:", e);
-            }
-          },
-        },
-      ]
-    );
-  }
+  
+  "Seçenekler",
+  "",
+  [
+    {
+      text: "Engelle",
+      onPress: () => onBlock(senderId),
+    },
+    { text: "İptal", style: "cancel" },
+    {
+      text: "Şikayet Et",
+      style: "destructive",
+      onPress: async () => {
+        try {
+          await addDoc(collection(db, "reports"), {
+            chatId,
+            reportedUser: "voice-message",
+            reporter: deviceId,
+            messageId,
+            type: "voice",
+            createdAt: serverTimestamp(),
+          });
 
+          Alert.alert("Teşekkürler", "Bildiriminiz için teşekkür ederiz.");
+        } catch (e) {
+          console.log("Ses şikayet hatası:", e);
+        }
+      },
+    },
+  ]
+);
+}
 
   async function togglePlay() {
     if (loading) return;
