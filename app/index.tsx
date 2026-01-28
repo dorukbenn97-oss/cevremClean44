@@ -1,5 +1,7 @@
+import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
+
 import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
 import {
   doc,
@@ -123,8 +125,8 @@ export default function Index() {
 
     if (roomsUsed >= maxRooms) {
   Alert.alert(
-  "Aktif Odan Var",
-  "Şu anda 1 aktif odan var.\nÜcretsiz kullanıcılar aynı anda yalnızca 1 oda açabilir.\n\nPremium ile aynı anda 5 oda açabilirsin.",
+  "1 Aktif Odan Var",
+  "Premium ile aynı anda 5 oda oluşturabilirsin.",
   [
     { text: "Vazgeç", style: "cancel" },
     { text: "⭐ Premium’a Geç", onPress: () => router.push("/premium") },
@@ -141,6 +143,11 @@ export default function Index() {
       ownerId: user.uid,
       participantsCount: 1,
     });
+    await setDoc(
+  userRef,
+  { roomsUsed: roomsUsed + 1 },
+  { merge: true }
+);
 
     
    
@@ -202,6 +209,12 @@ export default function Index() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#0B0B0F" }}>
+      <TouchableOpacity
+  onPress={() => router.push("/settings")}
+  style={{ position: "absolute", top: 12, right: 12, zIndex: 10 }}
+>
+  <Ionicons name="settings-outline" size={24} color="#7A7A82" />
+</TouchableOpacity>
       <View style={{ flex: 1, padding: 24 }}>
 
         {/* HERO */}
@@ -371,6 +384,7 @@ export default function Index() {
       <Text style={{ textAlign: "center", color: "#7A7A82", fontSize: 13 }}>
         Bağırmak yok. Fısıltı var.
       </Text>
+      
     </SafeAreaView>
   );
 }
