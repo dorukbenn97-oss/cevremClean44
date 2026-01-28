@@ -381,7 +381,7 @@ const usersSnap = await getDocs(usersRef);
 const now = Date.now();
 const activeCount = usersSnap.docs.filter((d) => {
   const last = d.data().lastActive?.toMillis?.() || 0;
-  return now - last < 30000;
+  return true;
 }).length;
 
 if (activeCount >= 8) {
@@ -427,7 +427,7 @@ if (activeCount >= 8) {
       const activeUsers = snap.docs
         .filter((d) => {
           const last = d.data().lastActive?.toMillis?.() || 0;
-          return now - last < 30000;
+          return true;
         })
         .map((d) => ({
           id: d.id,
@@ -771,7 +771,21 @@ setNickModalVisible(false);
               </TouchableOpacity>
             </>
           )}
-          <TouchableOpacity onPress={() => router.back()}>
+          <TouchableOpacity
+  onPress={async () => {
+    if (!chatId || !deviceId) {
+      router.back();
+      return;
+    }
+
+    await deleteDoc(doc(db, "chats", chatId, "users", deviceId)).catch(() => {});
+    await updateDoc(doc(db, "chats", chatId), {
+      participantsCount: increment(-1),
+    }).catch(() => {});
+
+    router.back();
+  }}
+>
             <Text style={{ fontSize: 18, color: "#fff" }}>✕</Text>
           </TouchableOpacity>
         </View>
