@@ -6,12 +6,13 @@
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "cevremclean",
-    "userInterfaceStyle": "automatic",
+
+    "userInterfaceStyle": "dark",
     "newArchEnabled": true,
 
     "splash": {
       "image": "./assets/images/splash.png",
-  "resizeMode": "cover",
+      "resizeMode": "cover",
       "backgroundColor": "#000000"
     },
 
@@ -22,13 +23,14 @@
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSMicrophoneUsageDescription": "Sesli mesaj göndermek için mikrofon erişimi gereklidir.",
-        "NSLocationWhenInUseUsageDescription": "Konum paylaşımı için konum erişimi gereklidir."
+        "NSLocationWhenInUseUsageDescription": "Konum paylaşımı için konum erişimi gereklidir.",
+        "UIStatusBarStyle": "UIStatusBarStyleLightContent"
       }
     },
 
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#000000",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -44,9 +46,7 @@
       "serviceWorker": false
     },
 
-    "plugins": [
-      "expo-router"
-    ],
+    "plugins": ["expo-router"],
 
     "experiments": {
       "typedRoutes": true,

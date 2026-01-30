@@ -10,7 +10,6 @@ import {
 } from "firebase/firestore";
 import { useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   StyleSheet,
   Text,
@@ -20,14 +19,13 @@ import {
 import { db } from "../firebaseConfig";
 import { playAudio, stopAudio } from "./AudioPlayerManager";
 
- type VoiceMessageProps = {
+type VoiceMessageProps = {
   chatId: string;
   messageId: string;
   deviceId: string;
   audioUrl: string;
   duration: number;
   isMe?: boolean;
-
   senderId: string;
   onBlock: (senderId: string) => void;
 };
@@ -43,13 +41,11 @@ export default function VoiceMessage({
   onBlock,
 }: VoiceMessageProps) {
   const markedReadRef = useRef(false);
+  const lastPositionRef = useRef(0);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [position, setPosition] = useState(0);
-  const [realDuration, setRealDuration] = useState(duration);
-  const [loading, setLoading] = useState(false);
-
-  const lastPositionRef = useRef(0);
+  const [realDuration, setRealDuration] = useState(duration || 0);
 
   useEffect(() => {
     return () => {
@@ -72,83 +68,57 @@ export default function VoiceMessage({
     });
   }
 
-  // 🔴 UZUN BASMA MENÜSÜ
   function handleLongPress() {
-    // KENDİ SESİ
     if (isMe) {
-      Alert.alert(
-        "Sesli mesaj",
-        "Bu mesaj silinsin mi?",
-        [
-          { text: "İptal", style: "cancel" },
-          {
-            text: "Sil",
-            style: "destructive",
-            onPress: async () => {
-              try {
-                await deleteDoc(
-                  doc(db, "chats", chatId, "messages", messageId)
-                );
-              } catch (e) {
-                console.log("Ses silme hatası:", e);
-              }
-            },
+      Alert.alert("Sesli mesaj", "Bu mesaj silinsin mi?", [
+        { text: "İptal", style: "cancel" },
+        {
+          text: "Sil",
+          style: "destructive",
+          onPress: async () => {
+            await deleteDoc(
+              doc(db, "chats", chatId, "messages", messageId)
+            );
           },
-        ]
-      );
+        },
+      ]);
       return;
     }
-    
-  
-    // BAŞKASININ SESİ → ŞİKAYET
-   Alert.alert(
-  
-  "Seçenekler",
-  "",
-  [
-    {
-      text: "Engelle",
-      onPress: () => onBlock(senderId),
-    },
-    { text: "İptal", style: "cancel" },
-    {
-      text: "Şikayet Et",
-      style: "destructive",
-      onPress: async () => {
-        try {
+
+    Alert.alert("Seçenekler", "", [
+      { text: "Engelle", onPress: () => onBlock(senderId) },
+      { text: "İptal", style: "cancel" },
+      {
+        text: "Şikayet Et",
+        style: "destructive",
+        onPress: async () => {
           await addDoc(collection(db, "reports"), {
             chatId,
-            reportedUser: "voice-message",
+            reportedUser: senderId,
             reporter: deviceId,
             messageId,
             type: "voice",
             createdAt: serverTimestamp(),
           });
-
-          Alert.alert("Teşekkürler", "Bildiriminiz için teşekkür ederiz.");
-        } catch (e) {
-          console.log("Ses şikayet hatası:", e);
-        }
+          Alert.alert("Teşekkürler", "Bildiriminiz alındı.");
+        },
       },
-    },
-  ]
-);
-}
+    ]);
+  }
 
-  async function togglePlay() {
-    if (loading) return;
-
+  function togglePlay() {
+    // ⛔ DUR
     if (isPlaying) {
-      setLoading(true);
-      await stopAudio();
       setIsPlaying(false);
-      setLoading(false);
+      stopAudio(); // anında kes
       return;
     }
 
-    setLoading(true);
+    // ▶️ ANINDA UI
+    setIsPlaying(true);
+    stopAudio(); // başka ses varsa anında kes
 
-    await playAudio({
+    playAudio({
       uri: audioUrl,
       onStatus: (status: AVPlaybackStatus) => {
         if (!status.isLoaded) return;
@@ -171,13 +141,10 @@ export default function VoiceMessage({
       },
       onStop: () => {
         setIsPlaying(false);
-        setPosition(lastPositionRef.current);
       },
     });
 
-    setIsPlaying(true);
-    await markAsReadOnce();
-    setLoading(false);
+    markAsReadOnce();
   }
 
   return (
@@ -186,34 +153,44 @@ export default function VoiceMessage({
         onPress={togglePlay}
         onLongPress={handleLongPress}
         activeOpacity={0.8}
-        style={styles.play}
-        
+        style={styles.playShape}
       >
-        {loading ? (
-          <ActivityIndicator color="#fff" />
+        {isPlaying ? (
+          <>
+            <View style={styles.pauseBar} />
+            <View style={styles.pauseBar} />
+          </>
         ) : (
-          <Text style={styles.icon}>{isPlaying ? "⏸️" : "▶️"}</Text>
+          <View style={styles.playTriangle} />
         )}
       </TouchableOpacity>
 
-      <View style={styles.info}>
-        <View style={styles.bar}>
+      <View style={styles.content}>
+        <View style={styles.waveWrapper}>
           <View
             style={[
-              styles.progress,
+              styles.waveProgress,
               {
                 width:
                   realDuration > 0
-                    ? `${Math.min((position / realDuration) * 100, 100)}%`
+                    ? `${Math.min(
+                        (position / realDuration) * 100,
+                        100
+                      )}%`
                     : "0%",
               },
             ]}
           />
         </View>
 
-        <Text style={styles.time}>
-  {realDuration > 0 ? formatTime(realDuration) : "Sesli mesaj"}
-</Text>
+        <View style={styles.meta}>
+          <Text style={styles.timeText}>
+            {realDuration > 0 ? formatTime(position) : "Sesli mesaj"}
+          </Text>
+          <Text style={styles.durationText}>
+            {realDuration > 0 ? formatTime(realDuration) : ""}
+          </Text>
+        </View>
       </View>
     </View>
   );
@@ -223,42 +200,83 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: "row",
     alignItems: "center",
-    padding: 10,
-    borderRadius: 16,
-    maxWidth: "80%",
-    marginVertical: 4,
+    padding: 12,
+    borderRadius: 18,
+    maxWidth: "85%",
+    marginVertical: 6,
   },
+
   me: {
-    backgroundColor: "#007AFF",
+    backgroundColor: "#0A84FF",
     alignSelf: "flex-end",
   },
+
   other: {
-    backgroundColor: "#444",
+    backgroundColor: "#2C2C2E",
     alignSelf: "flex-start",
   },
-  play: {
-    marginRight: 10,
-  },
-  icon: {
-    fontSize: 22,
-    color: "#fff",
-  },
-  info: {
+
+  content: {
     flex: 1,
   },
-  bar: {
-    height: 4,
-    backgroundColor: "#666",
-    borderRadius: 2,
+
+  waveWrapper: {
+    height: 6,
+    backgroundColor: "rgba(255,255,255,0.25)",
+    borderRadius: 3,
     overflow: "hidden",
-    marginBottom: 4,
+    marginBottom: 6,
   },
-  progress: {
-    height: 4,
+
+  waveProgress: {
+    height: 6,
     backgroundColor: "#fff",
+    borderRadius: 3,
   },
-  time: {
+
+  meta: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+
+  timeText: {
     color: "#fff",
     fontSize: 12,
+    opacity: 0.9,
+  },
+
+  durationText: {
+    color: "#fff",
+    fontSize: 12,
+    opacity: 0.6,
+  },
+
+  playShape: {
+    width: 20,
+    height: 20,
+    marginRight: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  pauseBar: {
+    width: 4,
+    height: 14,
+    backgroundColor: "#fff",
+    borderRadius: 2,
+    marginHorizontal: 2,
+  },
+
+  playTriangle: {
+    width: 0,
+    height: 0,
+    borderTopWidth: 7,
+    borderBottomWidth: 7,
+    borderLeftWidth: 12,
+    borderTopColor: "transparent",
+    borderBottomColor: "transparent",
+    borderLeftColor: "#fff",
+    marginLeft: 2,
   },
 });

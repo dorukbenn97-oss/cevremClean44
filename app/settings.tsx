@@ -7,12 +7,7 @@ export default function Settings() {
 
   return (
     <>
-      {/* ÜST BAR: geri butonu + başlık */}
-      <Stack.Screen
-        options={{
-          headerShown: false,
-        }}
-      />
+      <Stack.Screen options={{ headerShown: false }} />
 
       <View style={{ flex: 1, backgroundColor: "#fff" }}>
         {/* HEADER */}
@@ -52,6 +47,10 @@ export default function Settings() {
             Haklar bittiğinde isteğe bağlı olarak tekrar satın alınabilir.
             Abonelik veya otomatik yenileme bulunmamaktadır.
           </Text>
+          <Text style={{ marginTop: 8 }}>
+            Premium, daha fazla gizli sohbet oluşturmak isteyen kullanıcılar
+            için ek oda hakkı sunar.
+          </Text>
 
           <Text style={{ fontWeight: "bold", marginTop: 16 }}>
             Gizlilik ve Anonimlik
@@ -59,6 +58,13 @@ export default function Settings() {
           <Text>
             Uygulama anonim kullanım esasına dayanır. Ad, soyad, telefon
             numarası veya e-posta adresi talep edilmez.
+          </Text>
+          <Text style={{ marginTop: 8 }}>
+            Kullanıcılar, sohbet odaları içerisinde kendi takma adlarını (nick)
+            diledikleri zaman değiştirebilir.
+          </Text>
+          <Text style={{ marginTop: 8 }}>
+            Anonim kullanım, uygulama kurallarını ihlal etme hakkı tanımaz.
           </Text>
 
           <Text style={{ fontWeight: "bold", marginTop: 16 }}>
@@ -68,11 +74,26 @@ export default function Settings() {
             Kullanıcılar mesajları şikayet edebilir ve diğer kullanıcıları
             engelleyebilir.
           </Text>
+          <Text style={{ marginTop: 8 }}>
+            Uygunsuz içerikler, uygulama içi şikayet ve engelleme seçenekleri
+            aracılığıyla bildirilebilir.
+          </Text>
 
           <Text style={{ fontWeight: "bold", marginTop: 16 }}>
-            İletişim
+  Destek ve İletişim
+</Text>
+          <Text>fisilti.info.app@gmail.com</Text>
+
+          <Text
+            style={{
+              marginTop: 24,
+              textAlign: "center",
+              color: "#666",
+              fontSize: 12,
+            }}
+          >
+            Fısıltı — gizli sohbet için tasarlandı.
           </Text>
-          <Text>dorukbenn97@gmail.com</Text>
         </ScrollView>
       </View>
     </>
