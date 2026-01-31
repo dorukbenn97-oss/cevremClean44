@@ -828,38 +828,34 @@ if (item.type === "location") {
     {item.nick}
   </Text>
 )}
-      <TouchableOpacity
+     <TouchableOpacity
   onPress={() => Linking.openURL(url)}
   onLongPress={() => {
-  // 🧍‍♂️ KENDİ KONUMU
-  if (isMe) {
-    Alert.alert(
-      "Konumu Sil",
-      "Bu konumu herkes için silmek istiyor musun?",
-      [
-        { text: "İptal", style: "cancel" },
-        {
-          text: "Sil",
-          style: "destructive",
-          onPress: async () => {
-            await updateDoc(
-              doc(db, "chats", chatId!, "messages", item.id),
-              { deleted: true }
-            );
+    // 🧍‍♂️ KENDİ KONUMU
+    if (isMe) {
+      Alert.alert(
+        "Konumu Sil",
+        "Bu konumu herkes için silmek istiyor musun?",
+        [
+          { text: "İptal", style: "cancel" },
+          {
+            text: "Sil",
+            style: "destructive",
+            onPress: async () => {
+              await updateDoc(
+                doc(db, "chats", chatId!, "messages", item.id),
+                { deleted: true }
+              );
+            },
           },
-        },
-      ]
-    );
-    return;
-  }
+        ]
+      );
+      return;
+    }
 
-  // 👤 BAŞKASININ KONUMU
-  Alert.alert(
-    "Seçenekler",
-    "",
-    [
+    // 👤 BAŞKASININ KONUMU
+    Alert.alert("Seçenekler", "", [
       { text: "İptal", style: "cancel" },
-
       {
         text: "Şikayet Et",
         style: "destructive",
@@ -871,33 +867,55 @@ if (item.type === "location") {
             reportedBy: deviceId,
             createdAt: serverTimestamp(),
           });
-
           Alert.alert("Teşekkürler", "Konum bildirildi.");
         },
       },
-
       {
         text: "Engelle",
         onPress: () => {
           setBlockedIds((prev) =>
-            prev.includes(item.senderId)
-              ? prev
-              : [...prev, item.senderId]
+            prev.includes(item.senderId) ? prev : [...prev, item.senderId]
           );
         },
       },
-    ]
-  );
-}}
-        style={{
-          backgroundColor: "#1C1C22",
-          padding: 12,
-          borderRadius: 8,
-          maxWidth: "70%",
-        }}
-      >
-        <Text style={{ color: "#fff" }}>📍 Konumu görüntüle</Text>
-      </TouchableOpacity>
+    ]);
+  }}
+  style={{
+    backgroundColor: "#0F0F14",
+    borderRadius: 16,
+    overflow: "hidden",
+    maxWidth: "70%",
+    borderWidth: 1,
+    borderColor: "#1E1E26",
+  }}
+>
+ <View
+  style={{
+    height: 100, // ⬅️ 120 → 100 (kart kısaldı)
+    backgroundColor: "#14141B",
+    alignItems: "center",
+    justifyContent: "center",
+  }}
+>
+  <Ionicons name="location-sharp" size={38} color="#FF4D4D" />
+  <Text
+    style={{
+      color: "#8A8F98",
+      fontSize: 11, // ⬅️ daha küçük
+      marginTop: 4,
+    }}
+  >
+    Konum paylaşıldı
+  </Text>
+</View>
+
+  {/* ALT BİLGİ */}
+  <View style={{ padding: 12 }}>
+  <Text style={{ color: "#4FC3F7", fontWeight: "700", fontSize: 14 }}>
+    Konumu görüntüle
+  </Text>
+</View>
+</TouchableOpacity>
       
 
       {/* ⏱️ SAAT + OKUNDU */}

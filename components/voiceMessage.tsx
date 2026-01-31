@@ -183,12 +183,12 @@ export default function VoiceMessage({
           />
         </View>
 
+        {/* ⏱️ TEK SATIR: geçen / toplam */}
         <View style={styles.meta}>
           <Text style={styles.timeText}>
-            {realDuration > 0 ? formatTime(position) : "Sesli mesaj"}
-          </Text>
-          <Text style={styles.durationText}>
-            {realDuration > 0 ? formatTime(realDuration) : ""}
+            {realDuration > 0
+              ? `${formatTime(position)} / ${formatTime(realDuration)}`
+              : "Sesli mesaj"}
           </Text>
         </View>
       </View>
@@ -236,19 +236,13 @@ const styles = StyleSheet.create({
 
   meta: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    justifyContent: "flex-start",
   },
 
   timeText: {
     color: "#fff",
     fontSize: 12,
     opacity: 0.9,
-  },
-
-  durationText: {
-    color: "#fff",
-    fontSize: 12,
-    opacity: 0.6,
   },
 
   playShape: {
