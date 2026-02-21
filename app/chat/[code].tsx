@@ -148,6 +148,7 @@ const [someoneRecording, setSomeoneRecording] = useState(false);
   
 
 async function startRecording() {
+  if (recording) return;
  
   if (!chatId || !deviceId) return;
   await setDoc(
@@ -161,10 +162,11 @@ async function startRecording() {
     const permission = await Audio.requestPermissionsAsync();
     if (!permission.granted) return;
 
-    await Audio.setAudioModeAsync({
-      allowsRecordingIOS: true,
-      playsInSilentModeIOS: true,
-    });
+   await Audio.setAudioModeAsync({
+  allowsRecordingIOS: true,
+  playsInSilentModeIOS: true,
+  
+});
 
     const rec = new Audio.Recording();
     await rec.prepareToRecordAsync(
@@ -180,6 +182,8 @@ async function startRecording() {
 }
 
 async function stopRecording() {
+  if (isStoppingRef.current) return;
+  isStoppingRef.current = true;
   try {
 
     if (chatId && deviceId) {
@@ -187,14 +191,40 @@ async function stopRecording() {
       
     }
 
-    if (!recording) return;
+    if (!recording) {
+  isStoppingRef.current = false;
+  return;
+}
 
     setIsRecording(false);
     await recording.stopAndUnloadAsync();
+    setSomeoneRecording(false);
 
-    const uri = recording.getURI();
-    if (!uri) return;
-    if (!chatId || typeof chatId !== "string") return;
+
+const uri = recording.getURI();
+setMessages((prev) => [
+  {
+    id: "temp-" + Date.now(),
+    type: "voice",
+    localUri: uri,
+    senderId: deviceId,
+    nick: nick,
+    uploading: true,
+  },
+  ...prev,
+]);
+if (!uri) {
+  isStoppingRef.current = false;
+  return;
+}
+if (!chatId || typeof chatId !== "string") {
+  isStoppingRef.current = false;
+  return;
+}
+
+
+
+   
 
     const response = await fetch(uri);
     const blob = await response.blob();
@@ -212,7 +242,11 @@ async function stopRecording() {
   readBy: [deviceId],      // ✅ okundu fix
   nick: nick,              // ✅ düzeltildi
   createdAt: serverTimestamp(),
+ 
 });
+setMessages((prev) =>
+  prev.filter((m) => !m.id?.startsWith("temp-"))
+);
 setReplyTo(null);
 setSomeoneRecording(false);
 
@@ -223,8 +257,10 @@ setSomeoneRecording(false);
     });
 
     setRecording(null);
-  } catch (e) {
+ } catch (e) {
     console.log("Ses gönderme hatası:", e);
+  } finally {
+    isStoppingRef.current = false;
   }
 }
 async function cancelRecording() {
@@ -242,6 +278,7 @@ async function cancelRecording() {
   }
 }
   const pulseTop = useRef(new Animated.Value(1)).current;
+  const isStoppingRef = useRef(false);
 
 useEffect(() => {
   Animated.loop(
@@ -269,16 +306,7 @@ useEffect(() => {
   bumpActive();
 }, [chatId, deviceId]);
 
-// 🔁 FOREGROUND HEARTBEAT (2. sigorta)
-useEffect(() => {
-  if (!chatId || !deviceId) return;
 
-  const interval = setInterval(() => {
-    bumpActive();
-  }, 8000); // 8 sn
-
-  return () => clearInterval(interval);
-}, [chatId, deviceId]);
   const [blockedIds, setBlockedIds] = useState<string[]>([]);
  
   useEffect(() => {
@@ -327,24 +355,39 @@ setSomeoneRecording(otherRecording);
   useEffect(() => {
     getDeviceId().then(setDeviceId);
   }, []);
-  useEffect(() => {
+ useEffect(() => {
   if (!chatId || !deviceId) return;
 
-  const sub = AppState.addEventListener("change", (state) => {
+  const sub = AppState.addEventListener("change", async (state) => {
     if (state === "active") {
-      // 🔥 UI anında aktif
-      
+      // 🔥 Firestore aktiflik
+      try {
+        await bumpActive();
 
-      // 🔥 Firestore gerçek aktiflik
-      bumpActive();
-    } else {
-      
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: true,
+          playsInSilentModeIOS: true,
+        });
+      } catch (e) {
+        console.log("AppState active hatası:", e);
+      }
+    }
+
+    if (state === "background") {
+      // ❌ Arka planda kayıt varsa temizle
+      if (recording) {
+        try {
+          await recording.stopAndUnloadAsync();
+        } catch {}
+        setRecording(null);
+        setIsRecording(false);
+        setSomeoneRecording(false);
+      }
     }
   });
 
   return () => sub.remove();
-}, [chatId, deviceId]);
-
+}, [chatId, deviceId, recording]);
   /* CHAT META + GİRİŞ KONTROLÜ */
   useEffect(() => {
     if (!chatId || !deviceId) return;
@@ -1066,22 +1109,45 @@ return (
 {item.replyTo && (
   <View
     style={{
-      borderLeftWidth: 3,
+      backgroundColor: isMe
+        ? "rgba(255,255,255,0.24)"
+        : "rgba(255,255,255,0.18)",
+      borderRadius: 10,
+      paddingVertical: 7,
+      paddingHorizontal: 9,
+      marginBottom: 6,
+      borderLeftWidth: 4,
       borderLeftColor: "#4FC3F7",
-      paddingLeft: 6,
-      marginBottom: 4,
     }}
   >
-    <Text style={{ color: "#4FC3F7", fontSize: 11 }}>
-      Yanıtlanan: {item.replyTo.nick || "Kullanıcı"}
+    {/* YANITLANDI BAŞLIĞI – NET & KALİTELİ */}
+    <Text
+      style={{
+        color: "#7DD3FC",        // 🔵 Daha parlak mavi
+        fontSize: 11,
+        fontWeight: "800",       // 🔥 Daha net
+        marginBottom: 2,
+        opacity: 1,              // ❗ Solukluk yok
+      }}
+      numberOfLines={1}
+    >
+      Yanıtlanan · {item.replyTo.nick}
     </Text>
 
-    <Text style={{ color: "#aaa", fontSize: 11 }}>
-      {item.replyTo.text || "Mesaj"}
+    {/* YANITLANAN MESAJ */}
+    <Text
+      style={{
+        color: "#FFFFFF",
+        fontSize: 14,
+        fontWeight: "500",
+        opacity: 0.97,           // Hafif ama net
+      }}
+      numberOfLines={2}
+      ellipsizeMode="tail"
+    >
+      {item.replyTo.text}
     </Text>
-    
   </View>
-  
 )}
               </TouchableOpacity>
 
@@ -1113,13 +1179,7 @@ return (
         
       />
       {/* INPUT BAR */}
-      {(isRecording || someoneRecording) && (
-  <View style={{ paddingHorizontal: 14, marginBottom: 8 }}>
-    <Text style={{ color: "#aaa", fontSize: 12 }}>
-      🎙️ Ses kaydı alınıyor…
-    </Text>
-  </View>
-)}
+      
 
 {someoneTyping && !someoneRecording && (
   <View style={{ paddingHorizontal: 14, marginBottom: 8 }}>
@@ -1128,87 +1188,7 @@ return (
     </Text>
   </View>
 )}
-{!closed && (
-  <View
-    style={{
-      flexDirection: "row",
-      alignItems: "center",
-      padding: 10,
-      borderTopWidth: 1,
-      borderColor: "#1C1C22",
-      backgroundColor: "#111117",
-    }}
-  >
-    {locationModalOpen && (
-  <Modal
-    transparent
-    animationType="slide"
-    onRequestClose={() => setLocationModalOpen(false)}
-  >
-    <View
-      style={{
-        flex: 1,
-        backgroundColor: "rgba(0,0,0,0.6)",
-        justifyContent: "center",
-        alignItems: "center",
-      }}
-    >
-      <View
-        style={{
-          backgroundColor: "#111",
-          padding: 20,
-          borderRadius: 12,
-          width: "80%",
-        }}
-      >
-        <TouchableOpacity
-  onPress={requestLocation}
-  style={{
-    padding: 12,
-    backgroundColor: "#1C1C22",
-    borderRadius: 8,
-    marginBottom: 12,
-    alignItems: "center",
-  }}
->
-  <Text style={{ color: "#fff" }}>
-    📍 Konumu gönder
-  </Text>
-</TouchableOpacity>
-        <TouchableOpacity
-          onPress={() => setLocationModalOpen(false)}
-          style={{
-            padding: 10,
-            backgroundColor: "#1C1C22",
-            borderRadius: 8,
-          }}
-        >
-          <Text style={{ color: "#fff", textAlign: "center" }}>
-            Kapat
-          </Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  </Modal>
-)}
-    <TouchableOpacity
-  onPress={() => {
-  setLocationModalOpen(true);
-}}
-  
-  style={{ marginRight: 10 }}
->
-  <Ionicons name="location-outline" size={24} color="#aaa" />
-</TouchableOpacity>
-    {/* 🎙️ KAYIT YOKKEN */}
-    {!isRecording && (
-      <>
-        <TouchableOpacity
-          onPress={startRecording}
-          style={{ marginRight: 10 }}
-        >
-          <Ionicons name="mic" size={24} color="#aaa" />
-        </TouchableOpacity>
+{/* REPLY PREVIEW */}
 {replyTo && (
   <View
     style={{
@@ -1218,6 +1198,8 @@ return (
       borderLeftColor: "#4FC3F7",
       marginBottom: 6,
       borderRadius: 6,
+      maxHeight: 70,
+      overflow: "hidden",
     }}
   >
     <Text style={{ color: "#4FC3F7", fontSize: 12 }}>
@@ -1241,18 +1223,54 @@ return (
     </TouchableOpacity>
   </View>
 )}
+
+{/* INPUT BAR */}
+{!closed && (
+  <View
+    style={{
+      flexDirection: "row",
+      alignItems: "center",
+      padding: 10,
+      minHeight: 56,
+      maxHeight: 120,
+      borderTopWidth: 1,
+      borderColor: "#1C1C22",
+      backgroundColor: "#111117",
+    }}
+  >
+    {/* 📍 KONUM */}
+    <TouchableOpacity
+      onPress={() => setLocationModalOpen(true)}
+      style={{ marginRight: 10 }}
+    >
+      <Ionicons name="location-outline" size={24} color="#aaa" />
+    </TouchableOpacity>
+
+    {/* 🎙️ KAYIT YOKKEN */}
+    {!isRecording && (
+      <>
+        <TouchableOpacity
+          onPress={startRecording}
+          style={{ marginRight: 10 }}
+        >
+          <Ionicons name="mic" size={24} color="#aaa" />
+        </TouchableOpacity>
+
         <TextInput
           value={text}
           onChangeText={handleTyping}
           placeholder="Mesaj yaz..."
           placeholderTextColor="#666"
+          multiline
+          textAlignVertical="top"
           style={{
             flex: 1,
             backgroundColor: "#1C1C22",
             color: "#fff",
+            fontSize: 15,
             borderRadius: 20,
             paddingHorizontal: 14,
-            paddingVertical: 8,
+            paddingVertical: 10,
           }}
         />
 
@@ -1283,11 +1301,16 @@ return (
           paddingVertical: 10,
         }}
       >
-        <TouchableOpacity onPress={cancelRecording} style={{ marginRight: 12 }}>
+        <TouchableOpacity
+          onPress={cancelRecording}
+          style={{ marginRight: 12 }}
+        >
           <Ionicons name="trash" size={22} color="#f55" />
         </TouchableOpacity>
 
-        <Text style={{ color: "#fff", flex: 1 }}>Kayıt alınıyor…</Text>
+        <Text style={{ color: "#fff", flex: 1 }}>
+          Kayıt alınıyor…
+        </Text>
 
         <TouchableOpacity onPress={stopRecording}>
           <Ionicons name="send" size={22} color="#2ecc71" />
@@ -1296,6 +1319,62 @@ return (
     )}
   </View>
 )}
-    </KeyboardAvoidingView>
-  );
+
+{/* 📍 KONUM MODAL */}
+{locationModalOpen && (
+  <Modal
+    transparent
+    animationType="slide"
+    onRequestClose={() => setLocationModalOpen(false)}
+  >
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: "rgba(0,0,0,0.6)",
+        justifyContent: "center",
+        alignItems: "center",
+      }}
+    >
+      <View
+        style={{
+          backgroundColor: "#111",
+          padding: 20,
+          borderRadius: 12,
+          width: "80%",
+        }}
+      >
+        <TouchableOpacity
+          onPress={requestLocation}
+          style={{
+            padding: 12,
+            backgroundColor: "#1C1C22",
+            borderRadius: 8,
+            marginBottom: 12,
+            alignItems: "center",
+          }}
+        >
+          <Text style={{ color: "#fff" }}>
+            📍 Konumu gönder
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          onPress={() => setLocationModalOpen(false)}
+          style={{
+            padding: 10,
+            backgroundColor: "#1C1C22",
+            borderRadius: 8,
+          }}
+        >
+          <Text style={{ color: "#fff", textAlign: "center" }}>
+            Kapat
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  </Modal>
+)}
+  
+  </KeyboardAvoidingView>
+);
 }
