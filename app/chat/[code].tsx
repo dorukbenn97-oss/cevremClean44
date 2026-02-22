@@ -32,6 +32,7 @@ import {
   Linking,
   Modal,
   Platform,
+  ScrollView,
   Text,
   TextInput,
   TouchableOpacity,
@@ -79,6 +80,49 @@ async function setStoredNick(key: string, value: string) {
 }
 
 export default function ChatRoom() {
+  async function sendChatMessage({
+  type,
+  text,
+  audioUrl,
+  lat,
+  lng,
+  replyTo = null
+}: {
+  type: "text" | "voice" | "location";
+  text?: string;
+  audioUrl?: string;
+  lat?: number;
+  lng?: number;
+  replyTo?: any | null;
+}) {
+  if (!chatId || !deviceId) return;
+
+  try {
+    const messageData: any = {
+      type,
+      senderId: deviceId,
+      nick,
+      createdAt: serverTimestamp(),
+      readBy: [deviceId],
+      deleted: false,
+      replyTo: replyTo || null,
+    };
+
+    if (type === "text") messageData.text = text || "";
+    if (type === "voice") messageData.audioUrl = audioUrl;
+    if (type === "location") {
+      messageData.lat = lat;
+      messageData.lng = lng;
+    }
+
+    await addDoc(
+      collection(db, "chats", chatId, "messages"),
+      messageData
+    );
+  } catch (e) {
+    console.log("Mesaj gönderme hatası:", e);
+  }
+}
   
   
   // ✅ AKTİFLİK GÜNCELLE (pasif düşmeyi engeller)
@@ -235,15 +279,7 @@ if (!chatId || typeof chatId !== "string") {
     await uploadBytes(storageRef, blob);
     const downloadURL = await getDownloadURL(storageRef);
 
-    await addDoc(collection(db, "chats", chatId, "messages"), {
-  type: "voice",
-  audioUrl: downloadURL,
-  senderId: deviceId,
-  readBy: [deviceId],      // ✅ okundu fix
-  nick: nick,              // ✅ düzeltildi
-  createdAt: serverTimestamp(),
- 
-});
+    await sendChatMessage({ type: "voice", audioUrl: downloadURL });
 setMessages((prev) =>
   prev.filter((m) => !m.id?.startsWith("temp-"))
 );
@@ -331,6 +367,7 @@ setSomeoneRecording(otherRecording);
 
   const [nick, setNick] = useState("");
   const [text, setText] = useState("");
+  const flatListRef = useRef<FlatList>(null);
   const [messages, setMessages] = useState<any[]>([]);
   const [ready, setReady] = useState(false);
   const [replyTo, setReplyTo] = useState<any | null>(null);
@@ -836,6 +873,7 @@ setNickModalVisible(false);
 
       {/* MESSAGES */}
       <FlatList
+      ref={flatListRef}
   data={messages}
   inverted
   keyExtractor={(i) => i.id}
@@ -843,151 +881,148 @@ setNickModalVisible(false);
   removeClippedSubviews={false}
   renderItem={({ item }) => {
     
-          const isMe = item.senderId === deviceId;
-          const readCount = item.readBy?.length || 0;
-         
-          if (!isMe && blockedIds.includes(item.senderId)) return null;
-if (item.type === "location") {
-  if (!isMe && !item.readBy?.includes(deviceId)) {
-  updateDoc(
-    doc(db, "chats", chatId!, "messages", item.id),
-    { readBy: arrayUnion(deviceId) }
-  ).catch(() => {});
-}
-  if (item.deleted) return null;
-  const url = `https://www.google.com/maps?q=${item.lat},${item.lng}`;
+  const isMe = item.senderId === deviceId;
+  const readCount = item.readBy?.length || 0;
+  
+  if (!isMe && blockedIds.includes(item.senderId)) return null;
 
-  return (
-    <View style={{ alignSelf: isMe ? "flex-end" : "flex-start", marginBottom: 12 }}>
-      {!!item.nick && (
-  <Text
-    style={{
-      color: "#4FC3F7",
-      fontWeight: "700",
-      marginBottom: 4,
-      alignSelf: isMe ? "flex-end" : "flex-start",
-    }}
-  >
-    {item.nick}
-  </Text>
-)}
-     <TouchableOpacity
-  onPress={() => Linking.openURL(url)}
-  onLongPress={() => {
-    // 🧍‍♂️ KENDİ KONUMU
-    if (isMe) {
-      Alert.alert(
-        "Konumu Sil",
-        "Bu konumu herkes için silmek istiyor musun?",
-        [
-          { text: "İptal", style: "cancel" },
-          {
-            text: "Sil",
-            style: "destructive",
-            onPress: async () => {
-              await updateDoc(
-                doc(db, "chats", chatId!, "messages", item.id),
-                { deleted: true }
-              );
-            },
-          },
-        ]
-      );
-      return;
+  if (item.type === "location") {
+    if (!isMe && !item.readBy?.includes(deviceId)) {
+      updateDoc(
+        doc(db, "chats", chatId!, "messages", item.id),
+        { readBy: arrayUnion(deviceId) }
+      ).catch(() => {});
     }
+    if (item.deleted) return null;
+    const url = `https://www.google.com/maps?q=${item.lat},${item.lng}`;
 
-    // 👤 BAŞKASININ KONUMU
-    Alert.alert("Seçenekler", "", [
-      { text: "İptal", style: "cancel" },
-      {
-        text: "Şikayet Et",
-        style: "destructive",
-        onPress: async () => {
-          await addDoc(collection(db, "reports"), {
-            chatId,
-            messageId: item.id,
-            type: "location",
-            reportedBy: deviceId,
-            createdAt: serverTimestamp(),
-          });
-          Alert.alert("Teşekkürler", "Konum bildirildi.");
-        },
-      },
-      {
-        text: "Engelle",
-        onPress: () => {
-          setBlockedIds((prev) =>
-            prev.includes(item.senderId) ? prev : [...prev, item.senderId]
-          );
-        },
-      },
-    ]);
-  }}
-  style={{
-    backgroundColor: "#0F0F14",
-    borderRadius: 16,
-    overflow: "hidden",
-    maxWidth: "70%",
-    borderWidth: 1,
-    borderColor: "#1E1E26",
-  }}
->
- <View
-  style={{
-    height: 100, // ⬅️ 120 → 100 (kart kısaldı)
-    backgroundColor: "#14141B",
-    alignItems: "center",
-    justifyContent: "center",
-  }}
->
-  <Ionicons name="location-sharp" size={38} color="#FF4D4D" />
-  <Text
-    style={{
-      color: "#8A8F98",
-      fontSize: 11, // ⬅️ daha küçük
-      marginTop: 4,
-    }}
-  >
-    Konum paylaşıldı
-  </Text>
-</View>
-
-  {/* ALT BİLGİ */}
-  <View style={{ padding: 12 }}>
-  <Text style={{ color: "#4FC3F7", fontWeight: "700", fontSize: 14 }}>
-    Konumu görüntüle
-  </Text>
-</View>
-</TouchableOpacity>
-      
-
-      {/* ⏱️ SAAT + OKUNDU */}
-      <View
-        style={{
-          flexDirection: "row",
-          gap: 6,
-          marginTop: 4,
-          alignSelf: isMe ? "flex-end" : "flex-start",
-        }}
-      >
-        <Text style={{ fontSize: 11, color: "#888" }}>
-          {formatTime(item.createdAt)}
-        </Text>
-
-        {isMe && (
+    return (
+      <View style={{ alignSelf: isMe ? "flex-end" : "flex-start", marginBottom: 12 }}>
+        {!!item.nick && (
           <Text
             style={{
-              fontSize: 11,
-              color: readCount > 1 ? "#4FC3F7" : "#666",
+              color: "#4FC3F7",
+              fontWeight: "700",
+              marginBottom: 4,
+              alignSelf: isMe ? "flex-end" : "flex-start",
             }}
           >
-            {readCount > 1 ? "✓✓" : "✓"}
+            {item.nick}
           </Text>
         )}
+        <TouchableOpacity
+          onPress={() => Linking.openURL(url)}
+          onLongPress={() => {
+            if (isMe) {
+              Alert.alert(
+                "Konumu Sil",
+                "Bu konumu herkes için silmek istiyor musun?",
+                [
+                  { text: "İptal", style: "cancel" },
+                  {
+                    text: "Sil",
+                    style: "destructive",
+                    onPress: async () => {
+                      await updateDoc(
+                        doc(db, "chats", chatId!, "messages", item.id),
+                        { deleted: true }
+                      );
+                    },
+                  },
+                ]
+              );
+              return;
+            }
+
+            Alert.alert("Seçenekler", "", [
+              { text: "İptal", style: "cancel" },
+              {
+                text: "Şikayet Et",
+                style: "destructive",
+                onPress: async () => {
+                  await addDoc(collection(db, "reports"), {
+                    chatId,
+                    messageId: item.id,
+                    type: "location",
+                    reportedBy: deviceId,
+                    createdAt: serverTimestamp(),
+                  });
+                  Alert.alert("Teşekkürler", "Konum bildirildi.");
+                },
+              },
+              {
+                text: "Engelle",
+                onPress: () => {
+                  setBlockedIds((prev) =>
+                    prev.includes(item.senderId) ? prev : [...prev, item.senderId]
+                  );
+                },
+              },
+            ]);
+          }}
+          style={{
+            backgroundColor: "#0F0F14",
+            borderRadius: 16,
+            overflow: "hidden",
+            maxWidth: "70%",
+            borderWidth: 1,
+            borderColor: "#1E1E26",
+          }}
+        >
+          <View
+            style={{
+              height: 100,
+              backgroundColor: "#14141B",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Ionicons name="location-sharp" size={38} color="#FF4D4D" />
+            <Text
+              style={{
+                color: "#8A8F98",
+                fontSize: 11,
+                marginTop: 4,
+              }}
+            >
+              Konum paylaşıldı
+            </Text>
+          </View>
+
+          <View style={{ padding: 12 }}>
+            <Text style={{ color: "#4FC3F7", fontWeight: "700", fontSize: 14 }}>
+              Konumu görüntüle
+            </Text>
+          </View>
+        </TouchableOpacity>
+
+        <View
+          style={{
+            flexDirection: "row",
+            gap: 6,
+            marginTop: 4,
+            alignSelf: isMe ? "flex-end" : "flex-start",
+          }}
+        >
+          <Text style={{ fontSize: 11, color: "#888" }}>
+            {formatTime(item.createdAt)}
+          </Text>
+
+          {isMe && (
+            <Text
+              style={{
+                fontSize: 11,
+                color: readCount > 1 ? "#4FC3F7" : "#666",
+              }}
+            >
+              {readCount > 1 ? "✓✓" : "✓"}
+            </Text>
+          )}
+        </View>
       </View>
-    </View>
-  );
-}
+    );
+  }
+
           if (item.type === "voice") {
   return (
     <View style={{ alignSelf: isMe ? "flex-end" : "flex-start", marginBottom: 12 }}>
@@ -1123,13 +1158,12 @@ return (
     {/* YANITLANDI BAŞLIĞI – NET & KALİTELİ */}
     <Text
       style={{
-        color: "#7DD3FC",        // 🔵 Daha parlak mavi
+        color: "#7DD3FC",
         fontSize: 11,
-        fontWeight: "800",       // 🔥 Daha net
+        fontWeight: "800",
         marginBottom: 2,
-        opacity: 1,              // ❗ Solukluk yok
+        opacity: 1,
       }}
-      numberOfLines={1}
     >
       Yanıtlanan · {item.replyTo.nick}
     </Text>
@@ -1140,10 +1174,8 @@ return (
         color: "#FFFFFF",
         fontSize: 14,
         fontWeight: "500",
-        opacity: 0.97,           // Hafif ama net
+        opacity: 0.97,
       }}
-      numberOfLines={2}
-      ellipsizeMode="tail"
     >
       {item.replyTo.text}
     </Text>
@@ -1198,32 +1230,54 @@ return (
       borderLeftColor: "#4FC3F7",
       marginBottom: 6,
       borderRadius: 6,
-      maxHeight: 70,
-      overflow: "hidden",
+      maxHeight: 300, // biraz daha uzun yaptım
     }}
   >
-    <Text style={{ color: "#4FC3F7", fontSize: 12 }}>
+    <Text
+      style={{
+        color: "#4FC3F7",
+        fontSize: 12,
+        fontWeight: "700",
+        marginBottom: 4,
+      }}
+    >
       Yanıtlanan: {replyTo.nick || "Kullanıcı"}
     </Text>
 
-    <Text style={{ color: "#aaa", fontSize: 12 }}>
-      {replyTo.text
-        ? replyTo.text
-        : replyTo.type === "voice"
-        ? "🎤 Sesli mesaj"
-        : replyTo.type === "location"
-        ? "📍 Konum"
-        : "Mesaj"}
-    </Text>
+    <ScrollView
+      style={{ flexGrow: 0 }}
+      nestedScrollEnabled={true}
+      contentContainerStyle={{ paddingBottom: 4 }}
+    >
+      <Text
+        style={{
+          color: "#fff",
+          fontSize: 14,
+          lineHeight: 20,
+          flexWrap: "wrap",
+          flexShrink: 1, // metnin taşmasını önler
+        }}
+      >
+        {replyTo.text
+          ? replyTo.text
+          : replyTo.type === "voice"
+          ? "🎤 Sesli mesaj"
+          : replyTo.type === "location"
+          ? "📍 Konum"
+          : "Mesaj"}
+      </Text>
+    </ScrollView>
 
-    <TouchableOpacity onPress={() => setReplyTo(null)}>
-      <Text style={{ color: "#FF453A", fontSize: 12, marginTop: 4 }}>
+    <TouchableOpacity
+      onPress={() => setReplyTo(null)}
+      style={{ marginTop: 6 }}
+    >
+      <Text style={{ color: "#FF453A", fontSize: 12 }}>
         Yanıtı iptal et
       </Text>
     </TouchableOpacity>
   </View>
 )}
-
 {/* INPUT BAR */}
 {!closed && (
   <View
