@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Audio } from "expo-av";
+
 import * as Clipboard from "expo-clipboard";
 import * as Location from "expo-location";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -185,6 +186,35 @@ async function bumpActive() {
 const auth = getAuth();
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
 const [isRecording, setIsRecording] = useState(false);
+const [isOnline, setIsOnline] = useState(true);
+useEffect(() => {
+  
+  if (Platform.OS === "web") {
+    const updateOnlineStatus = () => setIsOnline(navigator.onLine);
+
+    window.addEventListener("online", updateOnlineStatus);
+    window.addEventListener("offline", updateOnlineStatus);
+
+    return () => {
+      window.removeEventListener("online", updateOnlineStatus);
+      window.removeEventListener("offline", updateOnlineStatus);
+    };
+  }
+}, []);
+useEffect(() => {
+  const checkInternet = async () => {
+    try {
+      await fetch("https://www.google.com", { method: "HEAD" });
+      setIsOnline(true);
+    } catch {
+      setIsOnline(false);
+    }
+  };
+
+  checkInternet();
+ const interval = setInterval(checkInternet, 100);
+  return () => clearInterval(interval);
+}, []);
 
 const [locationModalOpen, setLocationModalOpen] = useState(false);
 const [someoneRecording, setSomeoneRecording] = useState(false);
@@ -693,6 +723,21 @@ if (activeCount >= 8) {
   behavior={Platform.OS === "ios" ? "padding" : "height"}
   keyboardVerticalOffset={Platform.OS === "android" ? 20 : 0}
 >
+{!isOnline && (
+  <View style={{
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 999,
+  }}>
+    <Text style={{ color: "#fff", fontSize: 16 }}>Bağlanıyor...</Text>
+  </View>
+)}
       {/* NICK MODAL */}
       <Modal visible={nickModalVisible} transparent animationType="fade">
         <View
@@ -1055,6 +1100,11 @@ setNickModalVisible(false);
     )
   }
 />
+{!isOnline && (
+  <View style={{ padding: 8, backgroundColor: "#222", alignItems: "center" }}>
+    <Text style={{ color: "#fff" }}>Bağlantı yok…</Text>
+  </View>
+)}
 
       <View style={{ flexDirection: "row", gap: 6, alignSelf: isMe ? "flex-end" : "flex-start", marginTop: 2 }}>
         <Text style={{ fontSize: 11, color: "#888" }}>
@@ -1335,6 +1385,7 @@ return (
             paddingHorizontal: 14,
             paddingVertical: 10,
           }}
+          editable={isOnline}
         />
 
         <TouchableOpacity
@@ -1345,6 +1396,7 @@ return (
             borderRadius: 20,
             marginLeft: 6,
           }}
+          disabled={!isOnline}
         >
           <Text style={{ color: "#fff", fontSize: 16 }}>➤</Text>
         </TouchableOpacity>
