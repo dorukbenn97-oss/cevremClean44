@@ -395,36 +395,45 @@ setSomeoneRecording(otherRecording);
  useEffect(() => {
   if (!chatId || !deviceId) return;
 
-  const sub = AppState.addEventListener("change", async (state) => {
+  const handleAppStateChange = (state: string) => {
     if (state === "active") {
-      // 🔥 Firestore aktiflik
-      try {
-        await bumpActive();
-
-        await Audio.setAudioModeAsync({
-          allowsRecordingIOS: true,
-          playsInSilentModeIOS: true,
-        });
-      } catch (e) {
-        console.log("AppState active hatası:", e);
-      }
+      handleAppActive();
     }
 
     if (state === "background") {
-      // ❌ Arka planda kayıt varsa temizle
-      if (recording) {
-        try {
-          await recording.stopAndUnloadAsync();
-        } catch {}
-        setRecording(null);
-        setIsRecording(false);
-        setSomeoneRecording(false);
-      }
+      handleAppBackground();
     }
-  });
+  };
+
+  const sub = AppState.addEventListener("change", handleAppStateChange);
 
   return () => sub.remove();
 }, [chatId, deviceId, recording]);
+
+// 🔹 ayrı async fonksiyonlar
+const handleAppActive = async () => {
+  try {
+    await bumpActive();
+
+    await Audio.setAudioModeAsync({
+      allowsRecordingIOS: true,
+      playsInSilentModeIOS: true,
+    });
+  } catch (e) {
+    console.log("AppState active hatası:", e);
+  }
+};
+
+const handleAppBackground = async () => {
+  if (recording) {
+    try {
+      await recording.stopAndUnloadAsync();
+    } catch {}
+    setRecording(null);
+    setIsRecording(false);
+    setSomeoneRecording(false);
+  }
+};
   /* CHAT META + GİRİŞ KONTROLÜ */
   useEffect(() => {
     if (!chatId || !deviceId) return;
