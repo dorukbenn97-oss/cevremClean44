@@ -97,6 +97,7 @@ export default function ChatRoom() {
   replyTo?: any | null;
 }) {
   if (!chatId || !deviceId) return;
+  
 
   try {
     const messageData: any = {
@@ -130,6 +131,7 @@ export default function ChatRoom() {
 async function bumpActive() {
   try {
     if (!chatId || !deviceId) return;
+
 
     await setDoc(
       doc(db, "chats", chatId, "users", deviceId),
@@ -467,6 +469,13 @@ const handleAppBackground = async () => {
   /* CHAT META + GİRİŞ KONTROLÜ */
   useEffect(() => {
     if (!chatId || !deviceId) return;
+    if (!isOnline) {
+  Alert.alert(
+    "İnternet Yok",
+    "İnternet bağlantınız yok. Odaya giriş için internet gereklidir."
+  );
+  return;
+}
 
     const ref = doc(db, "chats", chatId);
     const usersRef = collection(db, "chats", chatId, "users");
@@ -765,7 +774,11 @@ if (activeCount >= 8) {
     setNickModalVisible(false);
 
     // 🔙 odadan tamamen çık
-    router.back();
+  if (router.canGoBack()) {
+  router.back();
+} else {
+  router.replace("/");
+}
   }}
   style={{
     position: "absolute",
@@ -905,7 +918,7 @@ setNickModalVisible(false);
               </TouchableOpacity>
             </>
           )}
-          <TouchableOpacity
+         <TouchableOpacity
   onPress={async () => {
     if (!chatId || !deviceId) {
       router.back();
@@ -920,8 +933,8 @@ setNickModalVisible(false);
     router.back();
   }}
 >
-            <Text style={{ fontSize: 18, color: "#fff" }}>✕</Text>
-          </TouchableOpacity>
+  <Text style={{ fontSize: 18, color: "#fff" }}>✕</Text>
+</TouchableOpacity>
         </View>
       </View>
 

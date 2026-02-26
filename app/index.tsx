@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 
+import NetInfo from "@react-native-community/netinfo"; // <- NetInfo import
 import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
 import {
   doc,
@@ -28,9 +29,7 @@ function generateCode() {
   return Math.random().toString(36).substring(2, 8).toUpperCase();
 }
 
-
 const DELETED_CHATS_KEY = "deletedChats";
-
 const FREE_MAX_ROOMS = 1;
 const PREMIUM_MAX_ROOMS = 5;
 const MAX_PARTICIPANTS = 8;
@@ -41,11 +40,12 @@ export default function Index() {
 
   const [code, setCode] = useState("");
   const [myChats, setMyChats] = useState<string[]>([]);
- 
   const [deletedChats, setDeletedChats] = useState<string[]>([]);
-
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
+
+  /* 🌐 INTERNET STATE */
+  const [isConnected, setIsConnected] = useState(true);
 
   /* ✨ ANİMASYON */
   const pulseTop = useRef(new Animated.Value(1)).current;
@@ -60,9 +60,15 @@ export default function Index() {
       }
 
       const userRef = doc(db, "users", user.uid);
-      const snap = await getDoc(userRef);
+      let snap;
+      try {
+        snap = await getDoc(userRef);
+      } catch (err) {
+        console.warn("Kullanıcı dokümanı alınamadı:", err);
+        snap = null;
+      }
 
-      if (!snap.exists()) {
+      if (!snap || !snap.exists()) {
         await setDoc(
           userRef,
           { isPremium: false, roomsUsed: 0, createdAt: serverTimestamp() },
@@ -74,6 +80,14 @@ export default function Index() {
     });
 
     return () => unsub();
+  }, []);
+
+  /* 🌐 INTERNET LISTENER */
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener(state => {
+      setIsConnected(state.isConnected ?? true);
+    });
+    return () => unsubscribe();
   }, []);
 
   /* ✨ PULSE */
@@ -97,7 +111,6 @@ export default function Index() {
   useEffect(() => {
     (async () => {
       setMyChats(JSON.parse((await AsyncStorage.getItem("myChats")) || "[]"));
-      
       setDeletedChats(JSON.parse((await AsyncStorage.getItem(DELETED_CHATS_KEY)) || "[]"));
     })();
   }, []);
@@ -111,11 +124,24 @@ export default function Index() {
 
   /* 🔹 CREATE */
   const createChatAndGo = async () => {
+    if (!isConnected) {
+      Alert.alert("İnternet yok", "Yeni oda oluşturmak için internet bağlantısı gerekli.");
+      return;
+    }
+
     const user = auth.currentUser;
     if (!user) return;
 
     const userRef = doc(db, "users", user.uid);
-    const snap = await getDoc(userRef);
+    let snap;
+    try {
+      snap = await getDoc(userRef);
+    } catch (err) {
+      console.warn("Oda oluşturulamadı:", err);
+      Alert.alert("Hata", "Oda oluşturulamadı. İnternet bağlantınızı kontrol edin.");
+      return;
+    }
+
     if (!snap.exists()) return;
 
     const data = snap.data();
@@ -124,60 +150,71 @@ export default function Index() {
     const roomsUsed = data.roomsUsed || 0;
 
     if (roomsUsed >= maxRooms) {
-  Alert.alert(
-  "1 Aktif Odan Var",
-  "Premium ile aynı anda 5 oda oluşturabilirsin.",
-  [
-    { text: "Vazgeç", style: "cancel" },
-    { text: "⭐ Premium’a Geç", onPress: () => router.push("/premium") },
-  ]
-);
-  return;
-}
+      Alert.alert(
+        "1 Aktif Odan Var",
+        "Premium ile aynı anda 5 oda oluşturabilirsin.",
+        [
+          { text: "Vazgeç", style: "cancel" },
+          { text: "⭐ Premium’a Geç", onPress: () => router.push("/premium") },
+        ]
+      );
+      return;
+    }
 
     const newCode = generateCode();
 
-    await setDoc(doc(db, "chats", newCode), {
-      createdAt: serverTimestamp(),
-      expiresAt: Timestamp.fromMillis(Date.now() + 24 * 60 * 60 * 1000),
-      ownerId: user.uid,
-      participantsCount: 1,
-    });
-    await setDoc(
-  userRef,
-  { roomsUsed: roomsUsed + 1 },
-  { merge: true }
-);
+    try {
+      await setDoc(doc(db, "chats", newCode), {
+        createdAt: serverTimestamp(),
+        expiresAt: Timestamp.fromMillis(Date.now() + 24 * 60 * 60 * 1000),
+        ownerId: user.uid,
+        participantsCount: 1,
+      });
+      
+    } catch (err) {
+      console.warn("Oda oluşturulamadı:", err);
+      Alert.alert("Hata", "Oda oluşturulamadı. İnternet bağlantınızı kontrol edin.");
+      return;
+    }
 
-    
-   
     router.push(`/chat/${newCode}`);
   };
 
   /* 🔹 JOIN */
- const goChatIfExists = async () => {
-  const c = code.trim().toUpperCase(); // ← BU SATIR EKSİKTİ
-  if (!c) return;
+  const goChatIfExists = async () => {
+    if (!isConnected) {
+      Alert.alert("İnternet yok", "Sohbete katılmak için internet bağlantısı gerekli.");
+      return;
+    }
 
-  const chatRef = doc(db, "chats", c);
-  const snap = await getDoc(chatRef);
+    const c = code.trim().toUpperCase();
+    if (!c) return;
 
-  if (!snap.exists()) {
-    Alert.alert("Geçersiz Kod", "Bu davet koduna ait bir oda yok.");
-    return;
-  }
+    const chatRef = doc(db, "chats", c);
+    let snap;
+    try {
+      snap = await getDoc(chatRef);
+    } catch (err) {
+      console.warn("Sohbet alınamadı:", err);
+      Alert.alert("Hata", "Sohbete katılamadı. İnternet bağlantınızı kontrol edin.");
+      return;
+    }
 
-  const data = snap.data();
+    if (!snap.exists()) {
+      Alert.alert("Geçersiz Kod", "Bu davet koduna ait bir oda yok.");
+      return;
+    }
 
-  if (data?.locked && auth.currentUser?.uid !== data?.ownerId) {
-    Alert.alert("Oda Kilitli", "Bu oda kilitli.");
-    router.replace("/");
-    return;
-  }
+    const data = snap.data();
 
-  router.push(`/chat/${c}`);
-};
+    if (data?.locked && auth.currentUser?.uid !== data?.ownerId) {
+      Alert.alert("Oda Kilitli", "Bu oda kilitli.");
+      router.replace("/");
+      return;
+    }
 
+    router.push(`/chat/${c}`);
+  };
 
   /* 🟦 SEÇİM */
   const toggleSelect = (code: string) => {
@@ -185,8 +222,6 @@ export default function Index() {
       prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]
     );
   };
-
-  
 
   const deleteSelected = async () => {
     const updated = Array.from(new Set([...deletedChats, ...selected]));
@@ -196,9 +231,8 @@ export default function Index() {
     setSelectMode(false);
   };
 
- const visibleChats = myChats.filter(
-  (c) => !deletedChats.includes(c)
-);
+  const visibleChats = myChats.filter((c) => !deletedChats.includes(c));
+
   if (!authReady) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: "#0B0B0F", justifyContent: "center", alignItems: "center" }}>
@@ -210,12 +244,21 @@ export default function Index() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#0B0B0F" }}>
       <TouchableOpacity
-  onPress={() => router.push("/settings")}
-  style={{ position: "absolute", top: 12, right: 12, zIndex: 10 }}
->
-  <Ionicons name="settings-outline" size={24} color="#7A7A82" />
-</TouchableOpacity>
+        onPress={() => router.push("/settings")}
+        style={{ position: "absolute", top: 12, right: 12, zIndex: 10 }}
+        disabled={!isConnected}
+      >
+        <Ionicons name="settings-outline" size={24} color={isConnected ? "#7A7A82" : "#444"} />
+      </TouchableOpacity>
+
       <View style={{ flex: 1, padding: 24 }}>
+
+        {/* 🌐 INTERNET DURUMU */}
+        {!isConnected && (
+          <Text style={{ textAlign: "center", color: "#FF453A", marginBottom: 12 }}>
+            İnternet bağlantısı yok
+          </Text>
+        )}
 
         {/* HERO */}
         <View style={{ alignItems: "center", marginBottom: 30 }}>
@@ -246,6 +289,7 @@ export default function Index() {
         {/* CREATE */}
         <TouchableOpacity
           onPress={createChatAndGo}
+          disabled={!isConnected}
           style={{
             backgroundColor: "#16161D",
             padding: 16,
@@ -254,6 +298,7 @@ export default function Index() {
             shadowColor: "#4FC3F7",
             shadowOpacity: 0.6,
             shadowRadius: 14,
+            opacity: isConnected ? 1 : 0.5,
           }}
         >
           <Text style={{ color: "#fff", textAlign: "center", fontSize: 17, fontWeight: "700" }}>
@@ -261,21 +306,22 @@ export default function Index() {
           </Text>
         </TouchableOpacity>
         <Text
-  style={{
-    color: "#8A8A8F",
-    fontSize: 13,
-    textAlign: "center",
-    marginTop: 6,
-    marginBottom: 20,
-  }}
->
-  ⏳ Oluşturulan odalar 24 saat sonra otomatik silinir
-</Text>
+          style={{
+            color: "#8A8A8F",
+            fontSize: 13,
+            textAlign: "center",
+            marginTop: 6,
+            marginBottom: 20,
+          }}
+        >
+          ⏳ Oluşturulan odalar 24 saat sonra otomatik silinir
+        </Text>
 
         <TextInput
           value={code}
           onChangeText={setCode}
           placeholder="Davet kodunu gir"
+          editable={isConnected}
           placeholderTextColor="#666"
           autoCapitalize="characters"
           style={{
@@ -286,11 +332,13 @@ export default function Index() {
             borderRadius: 12,
             padding: 14,
             marginBottom: 12,
+            opacity: isConnected ? 1 : 0.5,
           }}
         />
 
         <TouchableOpacity
           onPress={goChatIfExists}
+          disabled={!isConnected}
           style={{
             backgroundColor: "#007AFF",
             padding: 14,
@@ -299,6 +347,7 @@ export default function Index() {
             shadowColor: "#007AFF",
             shadowOpacity: 0.7,
             shadowRadius: 16,
+            opacity: isConnected ? 1 : 0.5,
           }}
         >
           <Text style={{ color: "#fff", textAlign: "center" }}>
@@ -307,42 +356,44 @@ export default function Index() {
         </TouchableOpacity>
 
         {visibleChats.length > 0 && (
-  <Text
-    style={{
-      color: "#8A8A8F",
-      fontSize: 12,
-      marginBottom: 10,
-      textAlign: "left",
-    }}
-  >
-    Sadece senin gördüklerin
-  </Text>
-)}
+          <Text
+            style={{
+              color: "#8A8A8F",
+              fontSize: 12,
+              marginBottom: 10,
+              textAlign: "left",
+            }}
+          >
+            Sadece senin gördüklerin
+          </Text>
+        )}
 
         {selectMode && (
           <View style={{ flexDirection: "row", gap: 10, marginBottom: 12 }}>
-          <TouchableOpacity
-  onPress={() => {
-    setSelectMode(false);
-    setSelected([]);
-  }}
-  style={{
-    position: "absolute",
-    right: 0,
-    top: -18,
-    zIndex: 10,
-  }}
->
-  <Text style={{ color: "#fff", fontSize: 18 }}>✕</Text>
-</TouchableOpacity>
-            
+            <TouchableOpacity
+              onPress={() => {
+                setSelectMode(false);
+                setSelected([]);
+              }}
+              style={{
+                position: "absolute",
+                right: 0,
+                top: -18,
+                zIndex: 10,
+              }}
+            >
+              <Text style={{ color: "#fff", fontSize: 18 }}>✕</Text>
+            </TouchableOpacity>
+
             <TouchableOpacity
               onPress={deleteSelected}
+              disabled={!isConnected}
               style={{
                 flex: 1,
                 padding: 12,
                 backgroundColor: "#FF453A",
                 borderRadius: 10,
+                opacity: isConnected ? 1 : 0.5,
               }}
             >
               <Text style={{ color: "#fff", textAlign: "center" }}>🗑️ Sil</Text>
@@ -362,6 +413,7 @@ export default function Index() {
                   setSelectMode(true);
                   toggleSelect(item);
                 }}
+                disabled={!isConnected}
                 style={{
                   padding: 14,
                   borderWidth: 1,
@@ -372,6 +424,7 @@ export default function Index() {
                   shadowColor: isSelected ? "#4FC3F7" : "#000",
                   shadowOpacity: isSelected ? 0.8 : 0.2,
                   shadowRadius: isSelected ? 12 : 4,
+                  opacity: isConnected ? 1 : 0.5,
                 }}
               >
                 <Text style={{ color: "#fff" }}>🕶️ {item}</Text>
@@ -384,7 +437,7 @@ export default function Index() {
       <Text style={{ textAlign: "center", color: "#7A7A82", fontSize: 13 }}>
         Bağırmak yok. Fısıltı var.
       </Text>
-      
+
     </SafeAreaView>
   );
 }
