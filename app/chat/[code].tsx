@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import NetInfo from "@react-native-community/netinfo";
 import { Audio } from "expo-av";
-
 import * as Clipboard from "expo-clipboard";
 import * as Location from "expo-location";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -63,7 +63,7 @@ async function getDeviceId(): Promise<string> {
 /* 🕒 TIME */
 function formatTime(ts: any) {
   if (!ts?.seconds) return "";
-  const d = new Date(ts.seconds * 1000);
+ const d = new Date(ts.seconds * 1000);
   return d.toLocaleTimeString("tr-TR", {
     hour: "2-digit",
     minute: "2-digit",
@@ -189,6 +189,9 @@ const auth = getAuth();
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
 const [isRecording, setIsRecording] = useState(false);
 const [isOnline, setIsOnline] = useState(true);
+const [sending, setSending] = useState(false);
+
+
 useEffect(() => {
   
   if (Platform.OS === "web") {
@@ -204,19 +207,16 @@ useEffect(() => {
   }
 }, []);
 useEffect(() => {
-  const checkInternet = async () => {
-    try {
-      await fetch("https://www.google.com", { method: "HEAD" });
-      setIsOnline(true);
-    } catch {
-      setIsOnline(false);
-    }
-  };
+  if (Platform.OS !== "web") {
+    const unsubscribe = NetInfo.addEventListener(state => {
+      setIsOnline(state.isConnected === true);
+    });
 
-  checkInternet();
- const interval = setInterval(checkInternet, 100);
-  return () => clearInterval(interval);
+    return () => unsubscribe();
+  }
 }, []);
+
+
 
 const [locationModalOpen, setLocationModalOpen] = useState(false);
 const [someoneRecording, setSomeoneRecording] = useState(false);
@@ -639,32 +639,39 @@ if (activeCount >= 8) {
     }, 2000);
   };
 
-  const sendMessage = async () => {
+ const sendMessage = async () => {
+  if (!text.trim() || !chatId || !deviceId || closed) return;
+
+  try {
     await bumpActive();
-    if (!text.trim() || !chatId || !deviceId || closed) return;
+
+    const tempText = text;
+    setText(""); // mesaj kutusu hemen temizlenir (gecikme hissi olmaz)
 
     await addDoc(collection(db, "chats", chatId, "messages"), {
-  text,
-  senderId: deviceId,
-  nick,
-  createdAt: serverTimestamp(),
-  readBy: [deviceId],
-  deleted: false,
-
-  replyTo: replyTo
-    ? {
-        id: replyTo.id,
-        text: replyTo.text || "",
-        type: replyTo.type || "text",
-        nick: replyTo.nick || "",
-      }
-    : null,
-});
+      text: tempText,
+      senderId: deviceId,
+      nick,
+      createdAt: serverTimestamp(),
+      readBy: [deviceId],
+      deleted: false,
+      replyTo: replyTo
+        ? {
+            id: replyTo.id,
+            text: replyTo.text || "",
+            type: replyTo.type || "text",
+            nick: replyTo.nick || "",
+          }
+        : null,
+    });
 
     await deleteDoc(doc(db, "chats", chatId, "typing", deviceId));
-    setText("");
     setReplyTo(null);
-  };
+
+  } catch (e) {
+    console.log(e);
+  }
+};
 
   const deleteMessageForEveryone = async (msg: any) => {
     if (msg.senderId !== deviceId) return;
@@ -688,9 +695,10 @@ if (activeCount >= 8) {
   };
 
   const toggleLock = async () => {
-    if (!isOwner || closed) return;
-    await updateDoc(doc(db, "chats", chatId!), { locked: !locked });
-  };
+  if (!isOwner || closed) return;
+  setLocked(!locked); 
+  await updateDoc(doc(db, "chats", chatId!), { locked: !locked });
+};
 
   const closeChatForever = async () => {
     if (!isOwner) return;
@@ -701,12 +709,14 @@ if (activeCount >= 8) {
         text: "Kapat",
         style: "destructive",
         onPress: async () => {
-          await updateDoc(doc(db, "chats", chatId!), {
-            closed: true,
-            locked: true,
-          });
-          router.replace("/");
-        },
+  setClosed(true); // EKLENDİ → UI hemen kapalı göstersin
+  setLocked(true); // EKLENDİ → kilit de aktif olsun
+  await updateDoc(doc(db, "chats", chatId!), {
+    closed: true,
+    locked: true,
+  });
+  router.replace("/");
+},
       },
     ]);
   };
@@ -774,10 +784,10 @@ if (activeCount >= 8) {
     setNickModalVisible(false);
 
     // 🔙 odadan tamamen çık
-  if (router.canGoBack()) {
-  router.back();
-} else {
-  router.replace("/");
+  try {
+  router.replace("/"); 
+} catch (err) {
+  console.warn
 }
   }}
   style={{
@@ -918,19 +928,23 @@ setNickModalVisible(false);
               </TouchableOpacity>
             </>
           )}
-         <TouchableOpacity
+        <TouchableOpacity
   onPress={async () => {
     if (!chatId || !deviceId) {
-      router.back();
+      if (router.canGoBack()) router.back(); // <-- burayı back ile değiştir
+      else router.replace("/");
       return;
     }
 
+    // Kullanıcıyı odadan sil
     await deleteDoc(doc(db, "chats", chatId, "users", deviceId)).catch(() => {});
     await updateDoc(doc(db, "chats", chatId), {
       participantsCount: increment(-1),
     }).catch(() => {});
 
-    router.back();
+    // Geri git veya ana sayfaya gönder
+    if (router.canGoBack()) router.back(); // <-- burayı da back ile değiştir
+    else router.replace("/");
   }}
 >
   <Text style={{ fontSize: 18, color: "#fff" }}>✕</Text>
@@ -1409,7 +1423,7 @@ return (
             borderRadius: 20,
             marginLeft: 6,
           }}
-          disabled={!isOnline}
+         disabled={!text.trim() || closed}
         >
           <Text style={{ color: "#fff", fontSize: 16 }}>➤</Text>
         </TouchableOpacity>
