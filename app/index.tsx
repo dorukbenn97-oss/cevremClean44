@@ -1,11 +1,13 @@
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
+import { disableNetwork, enableNetwork } from "firebase/firestore";
 
 import NetInfo from "@react-native-community/netinfo"; // <- NetInfo import
 import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
 import {
   doc,
+
   getDoc,
   serverTimestamp,
   setDoc,
@@ -83,12 +85,26 @@ export default function Index() {
   }, []);
 
   /* 🌐 INTERNET LISTENER */
-  useEffect(() => {
-    const unsubscribe = NetInfo.addEventListener(state => {
+useEffect(() => {
+  let mounted = true;
+
+  // 🔹 İlk durumu anında çek (gecikmeyi kaldırır)
+  NetInfo.fetch().then(state => {
+    if (mounted) {
       setIsConnected(state.isConnected ?? true);
-    });
-    return () => unsubscribe();
-  }, []);
+    }
+  });
+
+  // 🔹 Sonra listener
+  const unsubscribe = NetInfo.addEventListener(state => {
+    setIsConnected(state.isConnected ?? true);
+  });
+
+  return () => {
+    mounted = false;
+    unsubscribe();
+  };
+}, []);
 
   /* ✨ PULSE */
   useEffect(() => {
@@ -123,46 +139,56 @@ export default function Index() {
   };
 
   /* 🔹 CREATE */
-  const createChatAndGo = async () => {
-    if (!isConnected) {
-      Alert.alert("İnternet yok", "Yeni oda oluşturmak için internet bağlantısı gerekli.");
-      return;
-    }
+ const createChatAndGo = async () => {
+  if (!isConnected) {
+    Alert.alert("İnternet yok", "Yeni oda oluşturmak için internet bağlantısı gerekli.");
+    return;
+  }
+  try {
+    await disableNetwork(db);
+    await enableNetwork(db);
+  } catch (e) {}
 
-    const user = auth.currentUser;
-    if (!user) return;
+  const user = auth.currentUser;
+  if (!user) return;
 
-    const userRef = doc(db, "users", user.uid);
-    let snap;
-    try {
-      snap = await getDoc(userRef);
-    } catch (err) {
-      console.warn("Oda oluşturulamadı:", err);
-      Alert.alert("Hata", "Oda oluşturulamadı. İnternet bağlantınızı kontrol edin.");
-      return;
-    }
+  const userRef = doc(db, "users", user.uid);
 
-    if (!snap.exists()) return;
+  let snap;
+  try {
+    snap = await getDoc(userRef);
+  } catch (err) {
+    console.warn("Oda oluşturulamadı:", err);
+    Alert.alert("Hata", "Oda oluşturulamadı. İnternet bağlantınızı kontrol edin.");
+    return;
+  }
 
-    const data = snap.data();
-    const isPremium = !!data.isPremium;
-    const maxRooms = isPremium ? PREMIUM_MAX_ROOMS : FREE_MAX_ROOMS;
-    const roomsUsed = data.roomsUsed || 0;
+  if (!snap.exists()) return;
 
-    if (roomsUsed >= maxRooms) {
-      Alert.alert(
-        "1 Aktif Odan Var",
-        "Premium ile aynı anda 5 oda oluşturabilirsin.",
-        [
-          { text: "Vazgeç", style: "cancel" },
-          { text: "⭐ Premium’a Geç", onPress: () => router.push("/premium") },
-        ]
-      );
-      return;
-    }
+  const data = snap.data();
+  const isPremium = !!data.isPremium;
+  const maxRooms = isPremium ? PREMIUM_MAX_ROOMS : FREE_MAX_ROOMS;
+  const roomsUsed = data.roomsUsed || 0;
 
-    const newCode = generateCode();
+  if (roomsUsed >= maxRooms) {
+    Alert.alert(
+      "1 Aktif Odan Var",
+      "Premium ile aynı anda 5 oda oluşturabilirsin.",
+      [
+        { text: "Vazgeç", style: "cancel" },
+        { text: "⭐ Premium’a Geç", onPress: () => router.push("/premium") },
+      ]
+    );
+    return;
+  }
 
+  const newCode = generateCode();
+
+  // 🔥 RETRY MEKANİZMASI
+  let created = false;
+  let lastError;
+
+  for (let i = 0; i < 3; i++) {
     try {
       await setDoc(doc(db, "chats", newCode), {
         createdAt: serverTimestamp(),
@@ -170,16 +196,24 @@ export default function Index() {
         ownerId: user.uid,
         participantsCount: 1,
       });
-      
+
+      created = true;
+      break;
     } catch (err) {
-      console.warn("Oda oluşturulamadı:", err);
-      Alert.alert("Hata", "Oda oluşturulamadı. İnternet bağlantınızı kontrol edin.");
-      return;
+      lastError = err;
+      await new Promise(res => setTimeout(res, 100));
     }
+  }
 
-    router.push(`/chat/${newCode}`);
-  };
+  if (!created) {
+    console.warn("Oda oluşturulamadı:", lastError);
+    Alert.alert("Hata", "Oda oluşturulamadı. İnternet bağlantınızı kontrol edin.");
+    return;
+  }
 
+  router.push(`/chat/${newCode}`);
+};
+    
   /* 🔹 JOIN */
   const goChatIfExists = async () => {
     if (!isConnected) {

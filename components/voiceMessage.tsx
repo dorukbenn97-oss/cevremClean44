@@ -28,6 +28,10 @@ type VoiceMessageProps = {
   isMe?: boolean;
   senderId: string;
   onBlock: (senderId: string) => void;
+
+  // ✅ EKLENDİ
+  createdAt?: any;
+  readCount?: number;
 };
 
 export default function VoiceMessage({
@@ -39,6 +43,8 @@ export default function VoiceMessage({
   isMe = false,
   senderId,
   onBlock,
+  createdAt,
+  readCount = 0,
 }: VoiceMessageProps) {
   const markedReadRef = useRef(false);
   const lastPositionRef = useRef(0);
@@ -107,16 +113,14 @@ export default function VoiceMessage({
   }
 
   function togglePlay() {
-    // ⛔ DUR
     if (isPlaying) {
       setIsPlaying(false);
-      stopAudio(); // anında kes
+      stopAudio();
       return;
     }
 
-    // ▶️ ANINDA UI
     setIsPlaying(true);
-    stopAudio(); // başka ses varsa anında kes
+    stopAudio();
 
     playAudio({
       uri: audioUrl,
@@ -147,13 +151,25 @@ export default function VoiceMessage({
     markAsReadOnce();
   }
 
+  const progress =
+    realDuration > 0 ? position / realDuration : 0;
+
   return (
-    <View style={[styles.container, isMe ? styles.me : styles.other]}>
+    <View
+      style={[
+        styles.container,
+        isMe ? styles.me : styles.other,
+        isPlaying && styles.playingGlow,
+      ]}
+    >
       <TouchableOpacity
         onPress={togglePlay}
         onLongPress={handleLongPress}
-        activeOpacity={0.8}
-        style={styles.playShape}
+        activeOpacity={0.9}
+        style={[
+          styles.playButton,
+          isPlaying && styles.playButtonActive,
+        ]}
       >
         {isPlaying ? (
           <>
@@ -165,32 +181,56 @@ export default function VoiceMessage({
         )}
       </TouchableOpacity>
 
-      <View style={styles.content}>
-        <View style={styles.waveWrapper}>
-          <View
+      <View style={styles.waveContainer}>
+        {Array.from({ length: 32 }).map((_, i) => {
+          const active = i / 32 < progress;
+          return (
+            <View
+              key={i}
+              style={[
+                styles.waveBar,
+                {
+                  height: 5 + (i % 6) * 3,
+                  opacity: active ? 1 : 0.25,
+                },
+              ]}
+            />
+          );
+        })}
+      </View>
+
+      <Text style={styles.timeText}>
+        {realDuration > 0
+          ? `${formatTime(position)}`
+          : "0:00"}
+      </Text>
+
+      {/* ✅ SAAT + OKUNDU BİLGİSİ BALON İÇİNDE */}
+      <View style={styles.metaContainer}>
+        <Text style={styles.metaText}>
+          {createdAt?.toDate
+  ? createdAt
+      .toDate()
+      .toLocaleTimeString("tr-TR", {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+  : ""}
+        </Text>
+
+        {isMe && (
+          <Text
             style={[
-              styles.waveProgress,
+              styles.metaText,
               {
-                width:
-                  realDuration > 0
-                    ? `${Math.min(
-                        (position / realDuration) * 100,
-                        100
-                      )}%`
-                    : "0%",
+                color:
+                  readCount > 1 ? "#4FC3F7" : "#aaa",
               },
             ]}
-          />
-        </View>
-
-        {/* ⏱️ TEK SATIR: geçen / toplam */}
-        <View style={styles.meta}>
-          <Text style={styles.timeText}>
-            {realDuration > 0
-              ? `${formatTime(position)} / ${formatTime(realDuration)}`
-              : "Sesli mesaj"}
+          >
+            {readCount > 1 ? "✓✓" : "✓"}
           </Text>
-        </View>
+        )}
       </View>
     </View>
   );
@@ -198,79 +238,117 @@ export default function VoiceMessage({
 
 const styles = StyleSheet.create({
   container: {
+    position: "relative", // ✅ gerekli
     flexDirection: "row",
     alignItems: "center",
-    padding: 12,
-    borderRadius: 18,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    borderRadius: 26,
     maxWidth: "85%",
-    marginVertical: 6,
+    marginVertical: 8,
+    backgroundColor: "#111214",
   },
 
   me: {
-    backgroundColor: "#0A84FF",
     alignSelf: "flex-end",
+    borderWidth: 1,
+    borderColor: "rgba(0,122,255,0.6)",
   },
 
   other: {
-    backgroundColor: "#2C2C2E",
     alignSelf: "flex-start",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
   },
 
-  content: {
-    flex: 1,
+  playingGlow: {
+    shadowColor: "#00A2FF",
+    shadowOpacity: 0.9,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 22,
   },
 
-  waveWrapper: {
-    height: 6,
-    backgroundColor: "rgba(255,255,255,0.25)",
-    borderRadius: 3,
-    overflow: "hidden",
-    marginBottom: 6,
-  },
-
-  waveProgress: {
-    height: 6,
-    backgroundColor: "#fff",
-    borderRadius: 3,
-  },
-
-  meta: {
-    flexDirection: "row",
-    justifyContent: "flex-start",
-  },
-
-  timeText: {
-    color: "#fff",
-    fontSize: 12,
-    opacity: 0.9,
-  },
-
-  playShape: {
-    width: 20,
-    height: 20,
-    marginRight: 12,
-    flexDirection: "row",
+  playButton: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    marginRight: 18,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "#0C0D10",
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.06)",
+    shadowColor: "#000",
+    shadowOpacity: 0.6,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 12,
+  },
+
+  playButtonActive: {
+    backgroundColor: "#0F1C2A",
+    borderColor: "#00A2FF",
+    shadowColor: "#00A2FF",
+    shadowOpacity: 1,
+    shadowRadius: 25,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 28,
   },
 
   pauseBar: {
-    width: 4,
-    height: 14,
-    backgroundColor: "#fff",
-    borderRadius: 2,
-    marginHorizontal: 2,
+    width: 5,
+    height: 20,
+    backgroundColor: "#F0F6FF",
+    borderRadius: 3,
+    marginHorizontal: 4,
   },
 
   playTriangle: {
     width: 0,
     height: 0,
-    borderTopWidth: 7,
-    borderBottomWidth: 7,
-    borderLeftWidth: 12,
+    borderTopWidth: 12,
+    borderBottomWidth: 12,
+    borderLeftWidth: 20,
     borderTopColor: "transparent",
     borderBottomColor: "transparent",
-    borderLeftColor: "#fff",
-    marginLeft: 2,
+    borderLeftColor: "#F0F6FF",
+    marginLeft: 5,
+  },
+
+  waveContainer: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    flex: 1,
+    height: 24,
+  },
+
+  waveBar: {
+    width: 3,
+    backgroundColor: "#00A2FF",
+    borderRadius: 3,
+    marginRight: 3,
+  },
+
+  timeText: {
+    marginLeft: 10,
+    color: "#EAF4FF",
+    fontSize: 11,
+    fontWeight: "600",
+    letterSpacing: 0.4,
+  },
+
+  metaContainer: {
+    position: "absolute",
+    right: 12,
+    bottom: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+
+  metaText: {
+    fontSize: 10,
+    color: "#aaa",
   },
 });

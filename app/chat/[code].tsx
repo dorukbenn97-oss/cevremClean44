@@ -81,6 +81,9 @@ async function setStoredNick(key: string, value: string) {
 }
 
 export default function ChatRoom() {
+  useEffect(() => {
+  Audio.requestPermissionsAsync();
+}, []);
   async function sendChatMessage({
   type,
   text,
@@ -154,7 +157,10 @@ async function bumpActive() {
   // 1️⃣ ÖNCE konumu al
   const loc = await Location.getCurrentPositionAsync({});
 
-  // 2️⃣ SONRA Firestore’a yaz
+  // 2️⃣ Modal kapat
+  setLocationModalOpen(false);
+
+  // 3️⃣ SONRA Firestore’a yaz
   await addDoc(collection(db, "chats", chatId!, "messages"), {
     type: "location",
     lat: loc.coords.latitude,
@@ -174,9 +180,6 @@ async function bumpActive() {
   : null,
   });
   setReplyTo(null);
-
-  // 3️⃣ Modal kapat
-  setLocationModalOpen(false);
 }
 
   
@@ -225,33 +228,34 @@ const [someoneRecording, setSomeoneRecording] = useState(false);
 
 async function startRecording() {
   if (recording) return;
- 
   if (!chatId || !deviceId) return;
-  await setDoc(
-  doc(db, "chats", chatId, "typing", deviceId),
-  {
-    type: "voice",
-    updatedAt: serverTimestamp(),
-  }
-);
-  try {
-    const permission = await Audio.requestPermissionsAsync();
-    if (!permission.granted) return;
 
-   await Audio.setAudioModeAsync({
-  allowsRecordingIOS: true,
-  playsInSilentModeIOS: true,
-  
-});
+  try {
+
+    await Audio.setAudioModeAsync({
+      allowsRecordingIOS: true,
+      playsInSilentModeIOS: true,
+    });
 
     const rec = new Audio.Recording();
     await rec.prepareToRecordAsync(
       Audio.RecordingOptionsPresets.HIGH_QUALITY
     );
     await rec.startAsync();
+
     setSomeoneRecording(true);
     setRecording(rec);
     setIsRecording(true);
+
+    // 🔥 Firestore'u sona attık
+    setDoc(
+      doc(db, "chats", chatId, "typing", deviceId),
+      {
+        type: "voice",
+        updatedAt: serverTimestamp(),
+      }
+    );
+
   } catch (err) {
     console.log("record error", err);
   }
@@ -260,91 +264,102 @@ async function startRecording() {
 async function stopRecording() {
   if (isStoppingRef.current) return;
   isStoppingRef.current = true;
+
   try {
 
+    // Firestore typing sil → await YOK
     if (chatId && deviceId) {
-      await deleteDoc(doc(db, "chats", chatId, "typing", deviceId));
-      
+      deleteDoc(doc(db, "chats", chatId, "typing", deviceId));
     }
 
     if (!recording) {
-  isStoppingRef.current = false;
-  return;
-}
+      isStoppingRef.current = false;
+      return;
+    }
 
     setIsRecording(false);
     await recording.stopAndUnloadAsync();
     setSomeoneRecording(false);
 
+    const uri = recording.getURI();
 
-const uri = recording.getURI();
-setMessages((prev) => [
-  {
-    id: "temp-" + Date.now(),
-    type: "voice",
-    localUri: uri,
-    senderId: deviceId,
-    nick: nick,
-    uploading: true,
-  },
-  ...prev,
-]);
-if (!uri) {
-  isStoppingRef.current = false;
-  return;
-}
-if (!chatId || typeof chatId !== "string") {
-  isStoppingRef.current = false;
-  return;
-}
+    const tempId = "temp-" + Date.now();
 
+    // 🔥 TEMP MESAJ ANINDA
+    setMessages((prev) => [
+      {
+        id: tempId,
+        type: "voice",
+        localUri: uri,
+        senderId: deviceId,
+        nick: nick,
+        uploading: true,
+      },
+      ...prev,
+    ]);
 
+    setRecording(null);
+    isStoppingRef.current = false; // 🔥 UI KİLİDİ BURADA AÇILIYOR
 
-   
+    if (!uri || !chatId || typeof chatId !== "string") return;
 
-    const response = await fetch(uri);
-    const blob = await response.blob();
+    // 🔥 BURADAN SONRASI ARKA PLAN
+    (async () => {
+      try {
+        const response = await fetch(uri);
+        const blob = await response.blob();
 
-    const fileName = `voices/${chatId}/${Date.now()}.m4a`;
-    const storageRef = ref(storage, fileName);
+        const fileName = `voices/${chatId}/${Date.now()}.m4a`;
+        const storageRef = ref(storage, fileName);
 
-    await uploadBytes(storageRef, blob);
-    const downloadURL = await getDownloadURL(storageRef);
+        await uploadBytes(storageRef, blob);
+        const downloadURL = await getDownloadURL(storageRef);
 
-    await sendChatMessage({ type: "voice", audioUrl: downloadURL });
-setMessages((prev) =>
-  prev.filter((m) => !m.id?.startsWith("temp-"))
-);
-setReplyTo(null);
-setSomeoneRecording(false);
+        await sendChatMessage({ type: "voice", audioUrl: downloadURL });
 
-    // 🔊 KAYITTAN ÇIK → ÇALMA MODU
+        // temp mesajı sil
+        setMessages((prev) =>
+          prev.filter((m) => m.id !== tempId)
+        );
+
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          playsInSilentModeIOS: true,
+        });
+
+      } catch (err) {
+        console.log("Arka plan upload hatası:", err);
+      }
+    })();
+
+  } catch (e) {
+    console.log("Ses gönderme hatası:", e);
+    isStoppingRef.current = false;
+  }
+}async function cancelRecording() {
+  try {
+    if (!recording) return;
+
+    if (chatId && deviceId) {
+      deleteDoc(doc(db, "chats", chatId, "typing", deviceId)); // await kaldırıldı
+    }
+
+    await recording.stopAndUnloadAsync();
+
+    setRecording(null);
+    setIsRecording(false);
+    setSomeoneRecording(false);
+
     await Audio.setAudioModeAsync({
       allowsRecordingIOS: false,
       playsInSilentModeIOS: true,
     });
 
-    setRecording(null);
- } catch (e) {
-    console.log("Ses gönderme hatası:", e);
-  } finally {
-    isStoppingRef.current = false;
-  }
-}
-async function cancelRecording() {
-  try {
-    if (!recording) return;
-    if (chatId && deviceId) {
-  await deleteDoc(doc(db, "chats", chatId, "typing", deviceId));
-}
-
-    await recording.stopAndUnloadAsync();
-    setRecording(null);
-    setIsRecording(false);
   } catch (e) {
     console.log("Kayıt iptal hatası:", e);
   }
 }
+
   const pulseTop = useRef(new Animated.Value(1)).current;
   const isStoppingRef = useRef(false);
 
@@ -639,38 +654,30 @@ if (activeCount >= 8) {
     }, 2000);
   };
 
- const sendMessage = async () => {
+const sendMessage = async () => {
   if (!text.trim() || !chatId || !deviceId || closed) return;
 
-  try {
-    await bumpActive();
+  const tempText = text;
+  setText("");
 
-    const tempText = text;
-    setText(""); // mesaj kutusu hemen temizlenir (gecikme hissi olmaz)
+  addDoc(collection(db, "chats", chatId, "messages"), {
+    text: tempText,
+    senderId: deviceId,
+    nick,
+    createdAt: serverTimestamp(),
+    readBy: [deviceId],
+    deleted: false,
+    replyTo: replyTo
+      ? {
+          id: replyTo.id,
+          text: replyTo.text || "",
+          type: replyTo.type || "text",
+          nick: replyTo.nick || "",
+        }
+      : null,
+  }).catch(console.log);
 
-    await addDoc(collection(db, "chats", chatId, "messages"), {
-      text: tempText,
-      senderId: deviceId,
-      nick,
-      createdAt: serverTimestamp(),
-      readBy: [deviceId],
-      deleted: false,
-      replyTo: replyTo
-        ? {
-            id: replyTo.id,
-            text: replyTo.text || "",
-            type: replyTo.type || "text",
-            nick: replyTo.nick || "",
-          }
-        : null,
-    });
-
-    await deleteDoc(doc(db, "chats", chatId, "typing", deviceId));
-    setReplyTo(null);
-
-  } catch (e) {
-    console.log(e);
-  }
+  setReplyTo(null);
 };
 
   const deleteMessageForEveryone = async (msg: any) => {
@@ -929,22 +936,22 @@ setNickModalVisible(false);
             </>
           )}
         <TouchableOpacity
-  onPress={async () => {
+  onPress={() => {
     if (!chatId || !deviceId) {
-      if (router.canGoBack()) router.back(); // <-- burayı back ile değiştir
+      if (router.canGoBack()) router.back();
       else router.replace("/");
       return;
     }
 
-    // Kullanıcıyı odadan sil
-    await deleteDoc(doc(db, "chats", chatId, "users", deviceId)).catch(() => {});
-    await updateDoc(doc(db, "chats", chatId), {
+    // 🔥 ÖNCE ÇIK
+    if (router.canGoBack()) router.back();
+    else router.replace("/");
+
+    // 🔥 FIRESTORE ARKA PLAN
+    deleteDoc(doc(db, "chats", chatId, "users", deviceId)).catch(() => {});
+    updateDoc(doc(db, "chats", chatId), {
       participantsCount: increment(-1),
     }).catch(() => {});
-
-    // Geri git veya ana sayfaya gönder
-    if (router.canGoBack()) router.back(); // <-- burayı da back ile değiştir
-    else router.replace("/");
   }}
 >
   <Text style={{ fontSize: 18, color: "#fff" }}>✕</Text>
@@ -1121,6 +1128,8 @@ setNickModalVisible(false);
   duration={item.duration || 0}
   isMe={isMe}
   senderId={item.senderId}
+  readCount={readCount}
+  createdAt={item.createdAt}
   onBlock={(sid) =>
     setBlockedIds((prev) =>
       prev.includes(sid) ? prev : [...prev, sid]
@@ -1133,17 +1142,7 @@ setNickModalVisible(false);
   </View>
 )}
 
-      <View style={{ flexDirection: "row", gap: 6, alignSelf: isMe ? "flex-end" : "flex-start", marginTop: 2 }}>
-        <Text style={{ fontSize: 11, color: "#888" }}>
-          {item.createdAt?.toDate ? item.createdAt.toDate().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }) : ""}
-        </Text>
-
-        {isMe && (
-          <Text style={{ fontSize: 11, color: readCount > 1 ? "#4FC3F7" : "#888" }}>
-            {readCount > 1 ? "✓✓" : "✓"}
-          </Text>
-        )}
-      </View>
+      
     </View>
   );
 }
