@@ -8,18 +8,19 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { getAuth } from "firebase/auth";
 import {
   addDoc,
-  arrayUnion,
   collection,
   deleteDoc,
   doc,
   getDoc,
   getDocs,
   increment,
+  limit,
   onSnapshot,
   orderBy,
   query,
   serverTimestamp,
   setDoc,
+  startAfter,
   updateDoc
 } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
@@ -279,6 +280,9 @@ async function stopRecording() {
 
     setIsRecording(false);
     await recording.stopAndUnloadAsync();
+    await Audio.setAudioModeAsync({
+  allowsRecordingIOS: false,
+});
     setSomeoneRecording(false);
 
     const uri = recording.getURI();
@@ -322,10 +326,7 @@ async function stopRecording() {
           prev.filter((m) => m.id !== tempId)
         );
 
-        await Audio.setAudioModeAsync({
-          allowsRecordingIOS: false,
-          playsInSilentModeIOS: true,
-        });
+        
 
       } catch (err) {
         console.log("Arka plan upload hatası:", err);
@@ -416,6 +417,9 @@ setSomeoneRecording(otherRecording);
   const [text, setText] = useState("");
   const flatListRef = useRef<FlatList>(null);
   const [messages, setMessages] = useState<any[]>([]);
+  const [lastDoc, setLastDoc] = useState<any>(null);
+  
+const [loadingMore, setLoadingMore] = useState(false);
   const [ready, setReady] = useState(false);
   const [replyTo, setReplyTo] = useState<any | null>(null);
   const [someoneTyping, setSomeoneTyping] = useState(false);
@@ -429,7 +433,7 @@ setSomeoneRecording(otherRecording);
   >([]);
   
 
-  const typingTimeout = useRef<any>(null);
+  
 
   /* ✅ FIX: OWNER ARTIK AUTH UID */
   const isOwner =
@@ -442,14 +446,14 @@ setSomeoneRecording(otherRecording);
  useEffect(() => {
   if (!chatId || !deviceId) return;
 
-  const handleAppStateChange = (state: string) => {
+ const handleAppStateChange = async (state: string) => {
     if (state === "active") {
-      handleAppActive();
-    }
+  await handleAppActive();
+}
 
-    if (state === "background") {
-      handleAppBackground();
-    }
+if (state === "background") {
+  await handleAppBackground();
+}
   };
 
   const sub = AppState.addEventListener("change", handleAppStateChange);
@@ -463,7 +467,7 @@ const handleAppActive = async () => {
     await bumpActive();
 
     await Audio.setAudioModeAsync({
-      allowsRecordingIOS: true,
+      allowsRecordingIOS: false,
       playsInSilentModeIOS: true,
     });
   } catch (e) {
@@ -472,14 +476,23 @@ const handleAppActive = async () => {
 };
 
 const handleAppBackground = async () => {
-  if (recording) {
-    try {
+  try {
+    if (recording) {
       await recording.stopAndUnloadAsync();
-    } catch {}
-    setRecording(null);
-    setIsRecording(false);
-    setSomeoneRecording(false);
-  }
+    }
+  } catch {}
+
+  setRecording(null);
+  setIsRecording(false);
+  setSomeoneRecording(false);
+  isStoppingRef.current = false;
+
+  try {
+    await Audio.setAudioModeAsync({
+      allowsRecordingIOS: false,
+      playsInSilentModeIOS: true,
+    });
+  } catch {}
 };
   /* CHAT META + GİRİŞ KONTROLÜ */
   useEffect(() => {
@@ -594,28 +607,25 @@ if (activeCount >= 8) {
     if (!ready || !chatId || !deviceId) return;
 
     const q = query(
-      collection(db, "chats", chatId, "messages"),
-      orderBy("createdAt", "desc")
-    );
+  collection(db, "chats", chatId, "messages"),
+  orderBy("createdAt", "desc"),
+  limit(30)
+);
 
-    return onSnapshot(q, (snap) => {
+    return onSnapshot(q, async (snap) => {
   const list = snap.docs
     .map((d) => ({ id: d.id, ...d.data() }))
     .filter((m) => !(m as any).deleted);
 
- snap.docs.forEach((msgDoc) => {
-  const msg = msgDoc.data();
-  if (
-    msg.senderId !== deviceId &&
-    !msg.readBy?.includes(deviceId)
-  ) {
-    updateDoc(msgDoc.ref, {
-      readBy: arrayUnion(deviceId),
-    });
-  }
-});
-
   setMessages(list);
+
+  if (snap.docs.length > 0) {
+    setLastDoc(snap.docs[snap.docs.length - 1]);
+  }
+
+  await updateDoc(doc(db, "chats", chatId!), {
+    [`lastRead.${deviceId}`]: serverTimestamp(),
+  });
 });
 
 
@@ -632,10 +642,12 @@ if (activeCount >= 8) {
       );
     });
   }, [ready, chatId, deviceId, closed, blockedIds]);
-
+const isTypingRef = useRef(false);
+const typingTimeout = useRef<any>(null);
   const handleTyping = async (v: string) => {
     
     if (!chatId || !deviceId || closed) return;
+    if (!ready) return;
     setText(v);
 
     if (typingTimeout.current) clearTimeout(typingTimeout.current);
@@ -645,14 +657,46 @@ if (activeCount >= 8) {
       return;
     }
 
-    await setDoc(doc(db, "chats", chatId, "typing", deviceId), {
-      typing: true,
-    });
+    if (!chatId || !deviceId) return;
 
+if (!isTypingRef.current) {
+  await setDoc(
+    doc(db, "chats", chatId, "typing", deviceId),
+    { typing: true }
+  );
+  isTypingRef.current = true;
+}
     typingTimeout.current = setTimeout(async () => {
       await deleteDoc(doc(db, "chats", chatId, "typing", deviceId));
+      isTypingRef.current = false;
     }, 2000);
   };
+  const loadMore = async () => {
+  if (!lastDoc || loadingMore) return;
+
+  setLoadingMore(true);
+
+  const moreQuery = query(
+    collection(db, "chats", chatId!, "messages"),
+    orderBy("createdAt", "desc"),
+    startAfter(lastDoc),
+    limit(30)
+  );
+
+  const snap = await getDocs(moreQuery);
+
+  const more = snap.docs.map((d) => ({
+    id: d.id,
+    ...d.data(),
+  }));
+
+  if (snap.docs.length > 0) {
+    setLastDoc(snap.docs[snap.docs.length - 1]);
+  }
+
+  setMessages((prev) => [...prev, ...more]);
+  setLoadingMore(false);
+};
 
 const sendMessage = async () => {
   if (!text.trim() || !chatId || !deviceId || closed) return;
@@ -963,6 +1007,8 @@ setNickModalVisible(false);
       <FlatList
       ref={flatListRef}
   data={messages}
+  onEndReached={loadMore}
+onEndReachedThreshold={0.3}
   inverted
   keyExtractor={(i) => i.id}
   contentContainerStyle={{ padding: 16, flexGrow: 1, justifyContent: "flex-end" }}
@@ -976,10 +1022,7 @@ setNickModalVisible(false);
 
   if (item.type === "location") {
     if (!isMe && !item.readBy?.includes(deviceId)) {
-      updateDoc(
-        doc(db, "chats", chatId!, "messages", item.id),
-        { readBy: arrayUnion(deviceId) }
-      ).catch(() => {});
+      
     }
     if (item.deleted) return null;
     const url = `https://www.google.com/maps?q=${item.lat},${item.lng}`;

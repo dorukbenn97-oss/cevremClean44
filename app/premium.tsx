@@ -1,27 +1,46 @@
 import { useRouter } from "expo-router";
+import { doc, increment, updateDoc } from "firebase/firestore";
 import { Alert, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { auth, db } from "../firebaseConfig";
 
 export default function Premium() {
   const router = useRouter();
 
   /**
-   * ⭐ PREMIUM SATIN ALMA
-   * Apple App Store üzerinden sunulacaktır.
-   * Şu anda yalnızca bilgilendirme ekranıdır.
+   * ➕ 5 ODA PAKETİ SATIN ALMA
+   * Bu buton SADECE +5 oda ekler.
+   * Premium (isPremium) ayrı bir sistemdir.
    */
-  function startPremiumPurchase() {
-    Alert.alert(
-      "Premium",
-      "Premium özellikler yakında App Store üzerinden sunulacaktır."
-    );
+  async function startPremiumPurchase() {
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        Alert.alert("Hata", "Kullanıcı bulunamadı.");
+        return;
+      }
+
+      const userRef = doc(db, "users", user.uid);
+
+      // ✅ SADECE +5 oda ekler
+      await updateDoc(userRef, {
+        roomQuota: increment(5),
+      });
+
+      Alert.alert(
+        "Başarılı 🎉",
+        "+5 Oda hakkı hesabına eklendi.",
+        [{ text: "Tamam", onPress: () => router.back() }]
+      );
+    } catch (error) {
+      Alert.alert("Hata", "Satın alma işlemi başarısız.");
+    }
   }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#0B0B0F" }}>
       <View style={{ flex: 1, padding: 24, justifyContent: "center" }}>
         
-        {/* BAŞLIK */}
         <Text
           style={{
             fontSize: 28,
@@ -31,10 +50,9 @@ export default function Premium() {
             marginBottom: 20,
           }}
         >
-          ⭐ Premium ile Daha Rahat
+          ⭐ Oda Paketleri
         </Text>
 
-        {/* ÖZELLİKLER */}
         <View
           style={{
             backgroundColor: "#111117",
@@ -45,7 +63,7 @@ export default function Premium() {
           }}
         >
           <Text style={{ color: "#fff", fontSize: 16, marginBottom: 12 }}>
-            • Aynı anda 5 gizli oda açabilme
+            • +5 Ekstra Oda hakkı kazanırsın
           </Text>
 
           <Text style={{ color: "#fff", fontSize: 16, marginBottom: 12 }}>
@@ -53,11 +71,10 @@ export default function Premium() {
           </Text>
 
           <Text style={{ color: "#fff", fontSize: 16 }}>
-            • Oda yönetimi üzerinde daha fazla kontrol
+            • Premium kullanıcıysan mevcut limitine eklenir
           </Text>
         </View>
 
-        {/* PREMIUM BUTONU */}
         <TouchableOpacity
           onPress={startPremiumPurchase}
           style={{
@@ -75,11 +92,10 @@ export default function Premium() {
               textAlign: "center",
             }}
           >
-            ⭐ Premium’a Geç
+            ➕ 5 Oda Satın Al
           </Text>
         </TouchableOpacity>
 
-        {/* KISA BİLGİ */}
         <Text
           style={{
             color: "#8A8A8F",
@@ -88,10 +104,9 @@ export default function Premium() {
             textAlign: "center",
           }}
         >
-          Premium özellikler ilerleyen sürümlerde aktif edilecektir.
+          Satın alma sonrası oda hakkı anında hesabına eklenir.
         </Text>
 
-        {/* GERİ DÖN */}
         <TouchableOpacity
           onPress={() => router.back()}
           style={{

@@ -7,11 +7,12 @@ import NetInfo from "@react-native-community/netinfo"; // <- NetInfo import
 import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
 import {
   doc,
-
   getDoc,
+  increment,
   serverTimestamp,
   setDoc,
-  Timestamp
+  Timestamp,
+  updateDoc
 } from "firebase/firestore";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -165,12 +166,28 @@ useEffect(() => {
 
   if (!snap.exists()) return;
 
-  const data = snap.data();
-  const isPremium = !!data.isPremium;
-  const maxRooms = isPremium ? PREMIUM_MAX_ROOMS : FREE_MAX_ROOMS;
-  const roomsUsed = data.roomsUsed || 0;
+  
+ const data = snap.data();
+const isPremium = !!data.isPremium;
+
+const baseLimit = isPremium ? PREMIUM_MAX_ROOMS : FREE_MAX_ROOMS;
+const extraQuota = data.roomQuota || 0;
+
+const maxRooms = baseLimit + extraQuota;
+const roomsUsed = data.roomsUsed || 0;
 
   if (roomsUsed >= maxRooms) {
+
+  if (isPremium) {
+  Alert.alert(
+    "Oda Limitine Ulaştın",
+    "Yeni oda açmak için +5 Oda Paketi satın alabilirsin.",
+      [
+        { text: "Vazgeç", style: "cancel" },
+        { text: "➕ 5 Oda Satın Al", onPress: () => router.push("/premium") },
+      ]
+    );
+  } else {
     Alert.alert(
       "1 Aktif Odan Var",
       "Premium ile aynı anda 5 oda oluşturabilirsin.",
@@ -179,8 +196,10 @@ useEffect(() => {
         { text: "⭐ Premium’a Geç", onPress: () => router.push("/premium") },
       ]
     );
-    return;
   }
+
+  return;
+}
 
   const newCode = generateCode();
 
@@ -196,6 +215,10 @@ useEffect(() => {
         ownerId: user.uid,
         participantsCount: 1,
       });
+      await updateDoc(userRef, {
+  roomsUsed: increment(1)
+});
+      
 
       created = true;
       break;
