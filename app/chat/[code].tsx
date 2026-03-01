@@ -1,4 +1,4 @@
-import { Ionicons } from "@expo/vector-icons";
+ import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import NetInfo from "@react-native-community/netinfo";
 import { Audio } from "expo-av";
@@ -162,7 +162,9 @@ async function bumpActive() {
   setLocationModalOpen(false);
 
   // 3️⃣ SONRA Firestore’a yaz
-  await addDoc(collection(db, "chats", chatId!, "messages"), {
+  await addDoc(
+  collection(db, "chats", chatId!, "messages"),
+  {
     type: "location",
     lat: loc.coords.latitude,
     lng: loc.coords.longitude,
@@ -179,7 +181,7 @@ async function bumpActive() {
       nick: replyTo.nick || "",
     }
   : null,
-  });
+  }).catch(() => {});
   setReplyTo(null);
 }
 
@@ -249,13 +251,14 @@ async function startRecording() {
     setIsRecording(true);
 
     // 🔥 Firestore'u sona attık
-    setDoc(
-      doc(db, "chats", chatId, "typing", deviceId),
-      {
-        type: "voice",
-        updatedAt: serverTimestamp(),
-      }
-    );
+    
+    await setDoc(
+  doc(db, "chats", chatId, "typing", deviceId),
+  {
+    type: "voice",
+    updatedAt: serverTimestamp(),
+  }
+).catch(() => {});
 
   } catch (err) {
     console.log("record error", err);
@@ -269,10 +272,11 @@ async function stopRecording() {
   try {
 
     // Firestore typing sil → await YOK
-    if (chatId && deviceId) {
-      deleteDoc(doc(db, "chats", chatId, "typing", deviceId));
-    }
-
+   if (chatId && deviceId) {
+  await deleteDoc(
+    doc(db, "chats", chatId, "typing", deviceId)
+  ).catch(() => {});
+}
     if (!recording) {
       isStoppingRef.current = false;
       return;
@@ -342,7 +346,9 @@ async function stopRecording() {
     if (!recording) return;
 
     if (chatId && deviceId) {
-      deleteDoc(doc(db, "chats", chatId, "typing", deviceId)); // await kaldırıldı
+     await deleteDoc(
+  doc(db, "chats", chatId, "typing", deviceId)
+).catch(() => {});
     }
 
     await recording.stopAndUnloadAsync();
@@ -418,6 +424,7 @@ setSomeoneRecording(otherRecording);
   const flatListRef = useRef<FlatList>(null);
   const [messages, setMessages] = useState<any[]>([]);
   const [lastDoc, setLastDoc] = useState<any>(null);
+  const lastReadRef = useRef(false);
   
 const [loadingMore, setLoadingMore] = useState(false);
   const [ready, setReady] = useState(false);
@@ -623,9 +630,12 @@ if (activeCount >= 8) {
     setLastDoc(snap.docs[snap.docs.length - 1]);
   }
 
-  await updateDoc(doc(db, "chats", chatId!), {
+  if (!lastReadRef.current) {
+  updateDoc(doc(db, "chats", chatId!), {
     [`lastRead.${deviceId}`]: serverTimestamp(),
-  });
+  }).catch(() => {});
+  lastReadRef.current = true;
+}
 });
 
 
@@ -653,7 +663,9 @@ const typingTimeout = useRef<any>(null);
     if (typingTimeout.current) clearTimeout(typingTimeout.current);
 
     if (!v) {
-      await deleteDoc(doc(db, "chats", chatId, "typing", deviceId));
+     await deleteDoc(
+  doc(db, "chats", chatId, "typing", deviceId)
+).catch(() => {});
       return;
     }
 
@@ -661,15 +673,17 @@ const typingTimeout = useRef<any>(null);
 
 if (!isTypingRef.current) {
   await setDoc(
-    doc(db, "chats", chatId, "typing", deviceId),
-    { typing: true }
-  );
+  doc(db, "chats", chatId, "typing", deviceId),
+  { typing: true }
+).catch(() => {});
   isTypingRef.current = true;
 }
-    typingTimeout.current = setTimeout(async () => {
-      await deleteDoc(doc(db, "chats", chatId, "typing", deviceId));
-      isTypingRef.current = false;
-    }, 2000);
+   typingTimeout.current = setTimeout(async () => {
+  await deleteDoc(
+    doc(db, "chats", chatId, "typing", deviceId)
+  ).catch(() => {});
+  isTypingRef.current = false;
+}, 2000);
   };
   const loadMore = async () => {
   if (!lastDoc || loadingMore) return;
@@ -704,7 +718,9 @@ const sendMessage = async () => {
   const tempText = text;
   setText("");
 
-  addDoc(collection(db, "chats", chatId, "messages"), {
+ await addDoc(
+  collection(db, "chats", chatId, "messages"),
+  {
     text: tempText,
     senderId: deviceId,
     nick,
@@ -715,11 +731,10 @@ const sendMessage = async () => {
       ? {
           id: replyTo.id,
           text: replyTo.text || "",
-          type: replyTo.type || "text",
-          nick: replyTo.nick || "",
         }
       : null,
-  }).catch(console.log);
+  }
+).catch(() => {});
 
   setReplyTo(null);
 };
@@ -734,12 +749,12 @@ const sendMessage = async () => {
         style: "destructive",
         onPress: async () => {
           await updateDoc(
-            doc(db, "chats", chatId!, "messages", msg.id),
-            {
-              deleted: true,
-              text: "",
-            }
-          );
+  doc(db, "chats", chatId!, "messages", msg.id),
+  {
+    deleted: true,
+    text: "",
+  }
+).catch(() => {});
         },
       },
     ]);
@@ -748,7 +763,7 @@ const sendMessage = async () => {
   const toggleLock = async () => {
   if (!isOwner || closed) return;
   setLocked(!locked); 
-  await updateDoc(doc(db, "chats", chatId!), { locked: !locked });
+  await updateDoc(doc(db, "chats", chatId!), { locked: !locked }).catch(() => {});
 };
 
   const closeChatForever = async () => {
@@ -1562,3 +1577,4 @@ return (
   </KeyboardAvoidingView>
 );
 }
+
