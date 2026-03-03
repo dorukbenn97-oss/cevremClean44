@@ -32,10 +32,12 @@ export async function stopAudio() {
 
 export async function playAudio({
   uri,
+  startPosition = 0, // ✅ eklendi
   onStatus,
   onStop,
 }: {
   uri: string;
+  startPosition?: number; // ✅ TS hatası çözümü
   onStatus?: (status: AVPlaybackStatus) => void;
   onStop: () => void;
 }) {
@@ -45,8 +47,10 @@ export async function playAudio({
   try {
     await ensureAudioMode();
 
+    // Aynı ses açıksa kapat
     if (sound && currentUri === uri) {
       await stopAudio();
+      isLoading = false;
       return;
     }
 
@@ -56,8 +60,13 @@ export async function playAudio({
 
     await newSound.loadAsync(
       { uri },
-      { shouldPlay: true }
+      { shouldPlay: false }
     );
+
+    // ✅ Eğer kaldığı yer varsa oraya sar
+    if (startPosition > 0) {
+      await newSound.setPositionAsync(startPosition * 1000);
+    }
 
     if (onStatus) {
       newSound.setOnPlaybackStatusUpdate(onStatus);

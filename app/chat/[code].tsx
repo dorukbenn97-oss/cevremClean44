@@ -1,4 +1,4 @@
- import { Ionicons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import NetInfo from "@react-native-community/netinfo";
 import { Audio } from "expo-av";
@@ -800,7 +800,7 @@ const sendMessage = async () => {
     Alert.alert("Teşekkürler", "Bildiriminiz için teşekkür ederiz.");
   };
 
-  if (!ready) return null;
+ 
 
   return (
     <KeyboardAvoidingView
@@ -1577,4 +1577,3 @@ return (
   </KeyboardAvoidingView>
 );
 }
-
