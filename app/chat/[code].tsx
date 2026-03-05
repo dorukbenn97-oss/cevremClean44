@@ -162,7 +162,9 @@ async function bumpActive() {
   setLocationModalOpen(false);
 
   // 3️⃣ SONRA Firestore’a yaz
-  await addDoc(collection(db, "chats", chatId!, "messages"), {
+  await addDoc(
+  collection(db, "chats", chatId!, "messages"),
+  {
     type: "location",
     lat: loc.coords.latitude,
     lng: loc.coords.longitude,
@@ -179,7 +181,7 @@ async function bumpActive() {
       nick: replyTo.nick || "",
     }
   : null,
-  });
+  }).catch(() => {});
   setReplyTo(null);
 }
 
@@ -194,6 +196,16 @@ const auth = getAuth();
 const [isRecording, setIsRecording] = useState(false);
 const [isOnline, setIsOnline] = useState(true);
 const [sending, setSending] = useState(false);
+const resetAppState = () => {
+  setRecording(null);
+  setIsRecording(false);
+  setSomeoneRecording(false);
+  setText("");
+  setReplyTo(null);
+  setLocationModalOpen(false);
+  setNickModalVisible(false);
+  isStoppingRef.current = false;
+};
 
 
 useEffect(() => {
@@ -249,13 +261,14 @@ async function startRecording() {
     setIsRecording(true);
 
     // 🔥 Firestore'u sona attık
-    setDoc(
-      doc(db, "chats", chatId, "typing", deviceId),
-      {
-        type: "voice",
-        updatedAt: serverTimestamp(),
-      }
-    );
+    
+    await setDoc(
+  doc(db, "chats", chatId, "typing", deviceId),
+  {
+    type: "voice",
+    updatedAt: serverTimestamp(),
+  }
+).catch(() => {});
 
   } catch (err) {
     console.log("record error", err);
@@ -342,7 +355,9 @@ async function stopRecording() {
     if (!recording) return;
 
     if (chatId && deviceId) {
-      deleteDoc(doc(db, "chats", chatId, "typing", deviceId)); // await kaldırıldı
+     await deleteDoc(
+  doc(db, "chats", chatId, "typing", deviceId)
+).catch(() => {});
     }
 
     await recording.stopAndUnloadAsync();
@@ -417,7 +432,25 @@ setSomeoneRecording(otherRecording);
   const [text, setText] = useState("");
   const flatListRef = useRef<FlatList>(null);
   const [messages, setMessages] = useState<any[]>([]);
+  
+
+// 🔹 MESAJI SİL VE SCROLL’U KORU
+const deleteMessageAndKeepPosition = (msgId: string) => {
+  const index = messages.findIndex(m => m.id === msgId);
+  if (index === -1) return;
+
+  const MESSAGE_HEIGHT = 80; // Mesajın yaklaşık yüksekliği
+  const offset = MESSAGE_HEIGHT * index;
+
+  setMessages(prev => prev.filter(m => m.id !== msgId));
+
+  flatListRef.current?.scrollToOffset({
+    offset: offset,
+    animated: false,
+  });
+};
   const [lastDoc, setLastDoc] = useState<any>(null);
+  const lastReadRef = useRef(false);
   
 const [loadingMore, setLoadingMore] = useState(false);
   const [ready, setReady] = useState(false);
@@ -431,7 +464,7 @@ const [loadingMore, setLoadingMore] = useState(false);
   const [usersInRoom, setUsersInRoom] = useState<
     { id: string; nick: string }[]
   >([]);
-  
+ 
 
   
 
@@ -464,6 +497,8 @@ if (state === "background") {
 // 🔹 ayrı async fonksiyonlar
 const handleAppActive = async () => {
   try {
+    resetAppState(); // ← burayı ekledik
+
     await bumpActive();
 
     await Audio.setAudioModeAsync({
@@ -602,34 +637,47 @@ if (activeCount >= 8) {
     };
   }, [ready, chatId, deviceId, nick]);
 
-  /* MESSAGES */
-  useEffect(() => {
-    if (!ready || !chatId || !deviceId) return;
+ /* MESSAGES */
+useEffect(() => {
+  if (!ready || !chatId || !deviceId) return;
 
-    const q = query(
-  collection(db, "chats", chatId, "messages"),
-  orderBy("createdAt", "desc"),
-  limit(30)
-);
+  const q = query(
+    collection(db, "chats", chatId, "messages"),
+    orderBy("createdAt", "desc"),
+    limit(30)
+  );
 
-    return onSnapshot(q, async (snap) => {
-  const list = snap.docs
-    .map((d) => ({ id: d.id, ...d.data() }))
-    .filter((m) => !(m as any).deleted);
+  return onSnapshot(q, async (snap) => {
+    const list = snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .filter((m) => !(m as any).deleted);
 
-  setMessages(list);
+    setMessages(list);
 
-  if (snap.docs.length > 0) {
-    setLastDoc(snap.docs[snap.docs.length - 1]);
-  }
+    if (snap.docs.length > 0) {
+      setLastDoc(snap.docs[snap.docs.length - 1]);
+    }
 
-  await updateDoc(doc(db, "chats", chatId!), {
-    [`lastRead.${deviceId}`]: serverTimestamp(),
+    // 🔹 OK GÜNCELLEME (1 tik → 2 tik + mavi)
+    snap.docs.forEach(async (docSnap) => {
+      const msgData = docSnap.data();
+      if (!msgData.readBy?.includes(deviceId) && msgData.senderId !== deviceId) {
+        // Mesajı biz görmüşsek, readBy array'ine ekle
+        await updateDoc(doc(db, "chats", chatId!, "messages", docSnap.id), {
+          readBy: [...(msgData.readBy || []), deviceId],
+        }).catch(() => {});
+      }
+    });
+
+    // 🔹 Son okunan mesaj zamanını güncelle
+    if (!lastReadRef.current) {
+      updateDoc(doc(db, "chats", chatId!), {
+        [`lastRead.${deviceId}`]: serverTimestamp(),
+      }).catch(() => {});
+      lastReadRef.current = true;
+    }
   });
-});
-
-
-  }, [ready, chatId, deviceId]);
+}, [ready, chatId, deviceId]);
 
   /* TYPING */
   useEffect(() => {
@@ -653,7 +701,9 @@ const typingTimeout = useRef<any>(null);
     if (typingTimeout.current) clearTimeout(typingTimeout.current);
 
     if (!v) {
-      await deleteDoc(doc(db, "chats", chatId, "typing", deviceId));
+     await deleteDoc(
+  doc(db, "chats", chatId, "typing", deviceId)
+).catch(() => {});
       return;
     }
 
@@ -661,15 +711,17 @@ const typingTimeout = useRef<any>(null);
 
 if (!isTypingRef.current) {
   await setDoc(
-    doc(db, "chats", chatId, "typing", deviceId),
-    { typing: true }
-  );
+  doc(db, "chats", chatId, "typing", deviceId),
+  { typing: true }
+).catch(() => {});
   isTypingRef.current = true;
 }
-    typingTimeout.current = setTimeout(async () => {
-      await deleteDoc(doc(db, "chats", chatId, "typing", deviceId));
-      isTypingRef.current = false;
-    }, 2000);
+   typingTimeout.current = setTimeout(async () => {
+  await deleteDoc(
+    doc(db, "chats", chatId, "typing", deviceId)
+  ).catch(() => {});
+  isTypingRef.current = false;
+}, 2000);
   };
   const loadMore = async () => {
   if (!lastDoc || loadingMore) return;
@@ -704,7 +756,9 @@ const sendMessage = async () => {
   const tempText = text;
   setText("");
 
-  addDoc(collection(db, "chats", chatId, "messages"), {
+ await addDoc(
+  collection(db, "chats", chatId, "messages"),
+  {
     text: tempText,
     senderId: deviceId,
     nick,
@@ -715,40 +769,53 @@ const sendMessage = async () => {
       ? {
           id: replyTo.id,
           text: replyTo.text || "",
-          type: replyTo.type || "text",
-          nick: replyTo.nick || "",
         }
       : null,
-  }).catch(console.log);
+  }
+).catch(() => {});
 
   setReplyTo(null);
 };
 
   const deleteMessageForEveryone = async (msg: any) => {
-    if (msg.senderId !== deviceId) return;
+  if (msg.senderId !== deviceId) return;
 
-    Alert.alert("Mesajı Sil", "Bu mesaj herkes için silinecek.", [
-      { text: "İptal", style: "cancel" },
-      {
-        text: "Sil",
-        style: "destructive",
-        onPress: async () => {
+  Alert.alert("Mesajı Sil", "Bu mesaj herkes için silinecek.", [
+    { text: "İptal", style: "cancel" },
+    {
+      text: "Sil",
+      style: "destructive",
+      onPress: async () => {
+        try {
+          // 1️⃣ Firestore güncellemesini bekle
           await updateDoc(
             doc(db, "chats", chatId!, "messages", msg.id),
-            {
-              deleted: true,
-              text: "",
-            }
+            { deleted: true, text: "" }
           );
-        },
+
+          // 2️⃣ UI güncellemesi + scroll pozisyonu
+          const index = messages.findIndex(m => m.id === msg.id);
+          if (index === -1) return;
+
+          setMessages(prev => prev.filter(m => m.id !== msg.id));
+
+          // inverted FlatList için doğru index
+          flatListRef.current?.scrollToIndex({
+            index: index > 0 ? index - 1 : 0,
+            animated: false,
+          });
+        } catch (e) {
+          console.log("Mesaj silme hatası:", e);
+        }
       },
-    ]);
-  };
+    },
+  ]);
+};
 
   const toggleLock = async () => {
   if (!isOwner || closed) return;
   setLocked(!locked); 
-  await updateDoc(doc(db, "chats", chatId!), { locked: !locked });
+  await updateDoc(doc(db, "chats", chatId!), { locked: !locked }).catch(() => {});
 };
 
   const closeChatForever = async () => {
@@ -785,7 +852,7 @@ const sendMessage = async () => {
     Alert.alert("Teşekkürler", "Bildiriminiz için teşekkür ederiz.");
   };
 
-  if (!ready) return null;
+ 
 
   return (
     <KeyboardAvoidingView
@@ -1007,9 +1074,15 @@ setNickModalVisible(false);
       <FlatList
       ref={flatListRef}
   data={messages}
+  
+   
   onEndReached={loadMore}
 onEndReachedThreshold={0.3}
   inverted
+  maintainVisibleContentPosition={{
+  minIndexForVisible: 1,       
+  autoscrollToTopThreshold: 0, 
+}}
   keyExtractor={(i) => i.id}
   contentContainerStyle={{ padding: 16, flexGrow: 1, justifyContent: "flex-end" }}
   removeClippedSubviews={false}
@@ -1256,7 +1329,7 @@ return (
               <TouchableOpacity
                 activeOpacity={0.8}
                 onLongPress={() => {
-                  if (isMe) deleteMessageForEveryone(item);
+                 if (isMe) deleteMessageAndKeepPosition(item.id);
                 }}
                 style={{
                   backgroundColor: isMe ? "#007AFF" : "#1C1C22",

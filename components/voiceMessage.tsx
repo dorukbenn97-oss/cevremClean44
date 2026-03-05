@@ -1,4 +1,4 @@
-import { AVPlaybackStatus } from "expo-av";
+import { AVPlaybackStatus, Audio } from "expo-av";
 import {
   addDoc,
   arrayUnion,
@@ -28,11 +28,29 @@ type VoiceMessageProps = {
   isMe?: boolean;
   senderId: string;
   onBlock: (senderId: string) => void;
-
-  // ✅ EKLENDİ
   createdAt?: any;
   readCount?: number;
 };
+
+// ✅ Ses süresini güvenli almak için yardımcı fonksiyon
+async function getAudioDuration(uri?: string) {
+  if (!uri) return { duration: 0 };
+  try {
+    const { sound, status } = await Audio.Sound.createAsync(
+      { uri },
+      { shouldPlay: false }
+    );
+    let duration = 0;
+    if ("durationMillis" in status && status.durationMillis != null) {
+      duration = status.durationMillis / 1000;
+    }
+    await sound.unloadAsync();
+    return { duration };
+  } catch (e) {
+    console.warn("Audio load failed:", e);
+    return { duration: 0 };
+  }
+}
 
 export default function VoiceMessage({
   chatId,
@@ -48,16 +66,30 @@ export default function VoiceMessage({
 }: VoiceMessageProps) {
   const markedReadRef = useRef(false);
   const lastPositionRef = useRef(0);
+  const mountedRef = useRef(true);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [position, setPosition] = useState(0);
   const [realDuration, setRealDuration] = useState(duration || 0);
 
   useEffect(() => {
+    if (!audioUrl) return;
+    mountedRef.current = true;
+
+    if (realDuration === 0) {
+      (async () => {
+        try {
+          const { duration } = await getAudioDuration(audioUrl);
+          if (mountedRef.current) setRealDuration(duration);
+        } catch {}
+      })();
+    }
+
     return () => {
+      mountedRef.current = false;
       stopAudio();
     };
-  }, []);
+  }, [audioUrl]);
 
   const formatTime = (sec: number) => {
     const m = Math.floor(sec / 60);
@@ -68,10 +100,11 @@ export default function VoiceMessage({
   async function markAsReadOnce() {
     if (markedReadRef.current || isMe) return;
     markedReadRef.current = true;
-
-    await updateDoc(doc(db, "chats", chatId, "messages", messageId), {
-      readBy: arrayUnion(deviceId),
-    });
+    try {
+      await updateDoc(doc(db, "chats", chatId, "messages", messageId), {
+        readBy: arrayUnion(deviceId),
+      });
+    } catch {}
   }
 
   function handleLongPress() {
@@ -82,9 +115,9 @@ export default function VoiceMessage({
           text: "Sil",
           style: "destructive",
           onPress: async () => {
-            await deleteDoc(
-              doc(db, "chats", chatId, "messages", messageId)
-            );
+            try {
+              await deleteDoc(doc(db, "chats", chatId, "messages", messageId));
+            } catch {}
           },
         },
       ]);
@@ -98,21 +131,28 @@ export default function VoiceMessage({
         text: "Şikayet Et",
         style: "destructive",
         onPress: async () => {
-          await addDoc(collection(db, "reports"), {
-            chatId,
-            reportedUser: senderId,
-            reporter: deviceId,
-            messageId,
-            type: "voice",
-            createdAt: serverTimestamp(),
-          });
-          Alert.alert("Teşekkürler", "Bildiriminiz alındı.");
+          try {
+            await addDoc(collection(db, "reports"), {
+              chatId,
+              reportedUser: senderId,
+              reporter: deviceId,
+              messageId,
+              type: "voice",
+              createdAt: serverTimestamp(),
+            });
+            Alert.alert("Teşekkürler", "Bildiriminiz alındı.");
+          } catch {}
         },
       },
     ]);
   }
 
-  function togglePlay() {
+  async function togglePlay() {
+    if (!audioUrl) {
+      console.warn("Audio URL yok, oynatma başlatılamıyor");
+      return;
+    }
+
     if (isPlaying) {
       setIsPlaying(false);
       stopAudio();
@@ -125,34 +165,34 @@ export default function VoiceMessage({
     playAudio({
       uri: audioUrl,
       onStatus: (status: AVPlaybackStatus) => {
-        if (!status.isLoaded) return;
+        if (!status.isLoaded || !mountedRef.current) return;
 
-        if (status.positionMillis != null) {
-          const sec = status.positionMillis / 1000;
-          setPosition(sec);
+        const s = status as typeof status & {
+          positionMillis?: number;
+          didJustFinish?: boolean;
+        };
+
+        if (s.positionMillis != null) {
+          const sec = s.positionMillis / 1000;
+          if (mountedRef.current) setPosition(sec);
           lastPositionRef.current = sec;
         }
 
-        if (status.durationMillis && realDuration === 0) {
-          setRealDuration(status.durationMillis / 1000);
-        }
-
-        if (status.didJustFinish) {
+        if (s.didJustFinish && mountedRef.current) {
           setIsPlaying(false);
           setPosition(0);
           lastPositionRef.current = 0;
         }
       },
       onStop: () => {
-        setIsPlaying(false);
+        if (mountedRef.current) setIsPlaying(false);
       },
     });
 
     markAsReadOnce();
   }
 
-  const progress =
-    realDuration > 0 ? position / realDuration : 0;
+  const progress = realDuration > 0 ? position / realDuration : 0;
 
   return (
     <View
@@ -166,10 +206,7 @@ export default function VoiceMessage({
         onPress={togglePlay}
         onLongPress={handleLongPress}
         activeOpacity={0.9}
-        style={[
-          styles.playButton,
-          isPlaying && styles.playButtonActive,
-        ]}
+        style={[styles.playButton, isPlaying && styles.playButtonActive]}
       >
         {isPlaying ? (
           <>
@@ -200,32 +237,28 @@ export default function VoiceMessage({
       </View>
 
       <Text style={styles.timeText}>
-        {realDuration > 0
-          ? `${formatTime(position)}`
-          : "0:00"}
-      </Text>
+  {realDuration > 0
+    ? isPlaying
+      ? formatTime(Math.floor(position)) // Ses ilerlerken anlık saniye
+      : formatTime(realDuration) // Oynatmıyorsa toplam süre
+    : ""}
+</Text>
 
-      {/* ✅ SAAT + OKUNDU BİLGİSİ BALON İÇİNDE */}
       <View style={styles.metaContainer}>
         <Text style={styles.metaText}>
           {createdAt?.toDate
-  ? createdAt
-      .toDate()
-      .toLocaleTimeString("tr-TR", {
-        hour: "2-digit",
-        minute: "2-digit",
-      })
-  : ""}
+            ? createdAt.toDate().toLocaleTimeString("tr-TR", {
+                hour: "2-digit",
+                minute: "2-digit",
+              })
+            : ""}
         </Text>
 
         {isMe && (
           <Text
             style={[
               styles.metaText,
-              {
-                color:
-                  readCount > 1 ? "#4FC3F7" : "#aaa",
-              },
+              { color: readCount > 1 ? "#4FC3F7" : "#aaa" },
             ]}
           >
             {readCount > 1 ? "✓✓" : "✓"}
@@ -238,7 +271,7 @@ export default function VoiceMessage({
 
 const styles = StyleSheet.create({
   container: {
-    position: "relative", // ✅ gerekli
+    position: "relative",
     flexDirection: "row",
     alignItems: "center",
     paddingVertical: 16,

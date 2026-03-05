@@ -1,18 +1,15 @@
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
-import { disableNetwork, enableNetwork } from "firebase/firestore";
 
 import NetInfo from "@react-native-community/netinfo"; // <- NetInfo import
 import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
 import {
   doc,
   getDoc,
-  increment,
   serverTimestamp,
   setDoc,
-  Timestamp,
-  updateDoc
+  Timestamp
 } from "firebase/firestore";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -38,8 +35,10 @@ const PREMIUM_MAX_ROOMS = 5;
 const MAX_PARTICIPANTS = 8;
 
 export default function Index() {
+  const [creating, setCreating] = useState(false);
   const router = useRouter();
   const [authReady, setAuthReady] = useState(false);
+  const [userData, setUserData] = useState<any>(null);
 
   const [code, setCode] = useState("");
   const [myChats, setMyChats] = useState<string[]>([]);
@@ -61,25 +60,34 @@ export default function Index() {
         await signInAnonymously(auth);
         return;
       }
+console.log("BENIM UID:", user.uid);
+     const userRef = doc(db, "users", user.uid);
+let snap;
 
-      const userRef = doc(db, "users", user.uid);
-      let snap;
-      try {
-        snap = await getDoc(userRef);
-      } catch (err) {
-        console.warn("Kullanıcı dokümanı alınamadı:", err);
-        snap = null;
-      }
+try {
+  snap = await getDoc(userRef);
+} catch (err) {
+  console.warn("Kullanıcı dokümanı alınamadı:", err);
+  snap = null;
+}
 
-      if (!snap || !snap.exists()) {
-        await setDoc(
-          userRef,
-          { isPremium: false, roomsUsed: 0, createdAt: serverTimestamp() },
-          { merge: true }
-        );
-      }
+if (!snap || !snap.exists()) {
+  const defaultData = {
+    isPremium: false,
+    roomsUsed: 0,
+    roomQuota: 0,
+    createdAt: serverTimestamp(),
+  };
+
+  await setDoc(userRef, defaultData, { merge: true });
+  setUserData(defaultData);
+
+} else {
+  setUserData(snap.data());
+}
 
       setAuthReady(true);
+      getDoc(doc(db, "warmup", "ping")).catch(() => {});
     });
 
     return () => unsub();
@@ -141,33 +149,28 @@ useEffect(() => {
 
   /* 🔹 CREATE */
  const createChatAndGo = async () => {
+  
+   
+  if (creating) return;
+setCreating(true);
+  console.log("FONKSİYON ÇALIŞTI");
   if (!isConnected) {
     Alert.alert("İnternet yok", "Yeni oda oluşturmak için internet bağlantısı gerekli.");
+    setCreating(false);
     return;
   }
-  try {
-    await disableNetwork(db);
-    await enableNetwork(db);
-  } catch (e) {}
-
-  const user = auth.currentUser;
-  if (!user) return;
-
-  const userRef = doc(db, "users", user.uid);
-
-  let snap;
-  try {
-    snap = await getDoc(userRef);
-  } catch (err) {
-    console.warn("Oda oluşturulamadı:", err);
-    Alert.alert("Hata", "Oda oluşturulamadı. İnternet bağlantınızı kontrol edin.");
-    return;
-  }
-
-  if (!snap.exists()) return;
-
   
- const data = snap.data();
+  const user = auth.currentUser;
+if (!user) {
+  setCreating(false);
+  return;
+}
+  if (!userData) {
+  setCreating(false);
+  return;
+}
+
+const data = userData;
 const isPremium = !!data.isPremium;
 
 const baseLimit = isPremium ? PREMIUM_MAX_ROOMS : FREE_MAX_ROOMS;
@@ -187,54 +190,43 @@ const roomsUsed = data.roomsUsed || 0;
         { text: "➕ 5 Oda Satın Al", onPress: () => router.push("/premium") },
       ]
     );
-  } else {
-    Alert.alert(
-      "1 Aktif Odan Var",
-      "Premium ile aynı anda 5 oda oluşturabilirsin.",
+ } else {
+  Alert.alert(
+    "Oda Limitine Ulaştın",
+    "Free kullanıcılar toplam 1 oda oluşturabilir.",
       [
         { text: "Vazgeç", style: "cancel" },
         { text: "⭐ Premium’a Geç", onPress: () => router.push("/premium") },
       ]
     );
   }
-
+setCreating(false);
   return;
 }
 
   const newCode = generateCode();
 
-  // 🔥 RETRY MEKANİZMASI
-  let created = false;
-  let lastError;
+ // 🔥 Anında ekrana geç
+router.push(`/chat/${newCode}`);
 
-  for (let i = 0; i < 3; i++) {
-    try {
-      await setDoc(doc(db, "chats", newCode), {
-        createdAt: serverTimestamp(),
-        expiresAt: Timestamp.fromMillis(Date.now() + 24 * 60 * 60 * 1000),
-        ownerId: user.uid,
-        participantsCount: 1,
-      });
-      await updateDoc(userRef, {
-  roomsUsed: increment(1)
+// 🔥 Oda arkada oluşturulsun (bekleme yok)
+setDoc(doc(db, "chats", newCode), {
+  createdAt: serverTimestamp(),
+  expiresAt: Timestamp.fromMillis(Date.now() + 24 * 60 * 60 * 1000),
+  ownerId: user.uid,
+  participantsCount: 1,
+}).catch((err) => {
+  console.warn("Oda oluşturulamadı:", err);
 });
+
+setCreating(false);
+
       
 
-      created = true;
-      break;
-    } catch (err) {
-      lastError = err;
-      await new Promise(res => setTimeout(res, 100));
-    }
-  }
+    
+  
 
-  if (!created) {
-    console.warn("Oda oluşturulamadı:", lastError);
-    Alert.alert("Hata", "Oda oluşturulamadı. İnternet bağlantınızı kontrol edin.");
-    return;
-  }
-
-  router.push(`/chat/${newCode}`);
+  
 };
     
   /* 🔹 JOIN */
