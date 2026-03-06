@@ -8,6 +8,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { getAuth } from "firebase/auth";
 import {
   addDoc,
+  arrayUnion,
   collection,
   deleteDoc,
   doc,
@@ -21,6 +22,7 @@ import {
   serverTimestamp,
   setDoc,
   startAfter,
+  Timestamp,
   updateDoc
 } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
@@ -283,7 +285,9 @@ async function stopRecording() {
 
     // Firestore typing sil → await YOK
     if (chatId && deviceId) {
-      deleteDoc(doc(db, "chats", chatId, "typing", deviceId));
+     deleteDoc(
+  doc(db, "chats", chatId, "typing", deviceId)
+).catch(() => {});
     }
 
     if (!recording) {
@@ -307,10 +311,12 @@ async function stopRecording() {
       {
         id: tempId,
         type: "voice",
+         audioUrl: uri,
         localUri: uri,
         senderId: deviceId,
         nick: nick,
         uploading: true,
+        createdAt: Timestamp.now(),
       },
       ...prev,
     ]);
@@ -347,15 +353,17 @@ async function stopRecording() {
     })();
 
   } catch (e) {
-    console.log("Ses gönderme hatası:", e);
-    isStoppingRef.current = false;
-  }
+  console.log("Ses gönderme hatası:", e);
+}
+finally {
+  isStoppingRef.current = false;
+}
 }async function cancelRecording() {
   try {
     if (!recording) return;
 
     if (chatId && deviceId) {
-     await deleteDoc(
+     deleteDoc(
   doc(db, "chats", chatId, "typing", deviceId)
 ).catch(() => {});
     }
@@ -378,7 +386,6 @@ async function stopRecording() {
 
   const pulseTop = useRef(new Animated.Value(1)).current;
   const isStoppingRef = useRef(false);
-
 useEffect(() => {
   Animated.loop(
     Animated.sequence([
@@ -658,13 +665,14 @@ useEffect(() => {
       setLastDoc(snap.docs[snap.docs.length - 1]);
     }
 
+
     // 🔹 OK GÜNCELLEME (1 tik → 2 tik + mavi)
     snap.docs.forEach(async (docSnap) => {
       const msgData = docSnap.data();
       if (!msgData.readBy?.includes(deviceId) && msgData.senderId !== deviceId) {
         // Mesajı biz görmüşsek, readBy array'ine ekle
         await updateDoc(doc(db, "chats", chatId!, "messages", docSnap.id), {
-          readBy: [...(msgData.readBy || []), deviceId],
+          readBy: arrayUnion(deviceId),
         }).catch(() => {});
       }
     });
@@ -678,6 +686,7 @@ useEffect(() => {
     }
   });
 }, [ready, chatId, deviceId]);
+
 
   /* TYPING */
   useEffect(() => {
@@ -728,12 +737,12 @@ if (!isTypingRef.current) {
 
   setLoadingMore(true);
 
-  const moreQuery = query(
-    collection(db, "chats", chatId!, "messages"),
-    orderBy("createdAt", "desc"),
-    startAfter(lastDoc),
-    limit(30)
-  );
+ const moreQuery = query(
+  collection(db, "chats", chatId!, "messages"),
+  orderBy("createdAt", "desc"),
+  startAfter(lastDoc?.data()?.createdAt ?? 0), 
+  limit(30)
+);
 
   const snap = await getDocs(moreQuery);
 
@@ -789,6 +798,7 @@ const sendMessage = async () => {
         try {
           // 1️⃣ Firestore güncellemesini bekle
           await updateDoc(
+
             doc(db, "chats", chatId!, "messages", msg.id),
             { deleted: true, text: "" }
           );
@@ -807,6 +817,7 @@ const sendMessage = async () => {
         } catch (e) {
           console.log("Mesaj silme hatası:", e);
         }
+
       },
     },
   ]);
