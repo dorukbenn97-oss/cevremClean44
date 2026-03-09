@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import NetInfo from "@react-native-community/netinfo";
 import { Audio } from "expo-av";
+
 import * as Clipboard from "expo-clipboard";
 import * as Location from "expo-location";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -22,7 +23,6 @@ import {
   serverTimestamp,
   setDoc,
   startAfter,
-  Timestamp,
   updateDoc
 } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
@@ -282,12 +282,9 @@ async function stopRecording() {
   isStoppingRef.current = true;
 
   try {
-
-    // Firestore typing sil → await YOK
+    // Firestore typing sil
     if (chatId && deviceId) {
-     deleteDoc(
-  doc(db, "chats", chatId, "typing", deviceId)
-).catch(() => {});
+      deleteDoc(doc(db, "chats", chatId, "typing", deviceId));
     }
 
     if (!recording) {
@@ -298,35 +295,17 @@ async function stopRecording() {
     setIsRecording(false);
     await recording.stopAndUnloadAsync();
     await Audio.setAudioModeAsync({
-  allowsRecordingIOS: false,
-});
+      allowsRecordingIOS: false,
+    });
     setSomeoneRecording(false);
 
     const uri = recording.getURI();
-
-    const tempId = "temp-" + Date.now();
-
-    // 🔥 TEMP MESAJ ANINDA
-    setMessages((prev) => [
-      {
-        id: tempId,
-        type: "voice",
-         audioUrl: uri,
-        localUri: uri,
-        senderId: deviceId,
-        nick: nick,
-        uploading: true,
-        createdAt: Timestamp.now(),
-      },
-      ...prev,
-    ]);
-
     setRecording(null);
-    isStoppingRef.current = false; // 🔥 UI KİLİDİ BURADA AÇILIYOR
+    isStoppingRef.current = false; // UI kilidi açılıyor
 
     if (!uri || !chatId || typeof chatId !== "string") return;
 
-    // 🔥 BURADAN SONRASI ARKA PLAN
+    // 🔥 ARKA PLAN YÜKLEME
     (async () => {
       try {
         const response = await fetch(uri);
@@ -339,25 +318,16 @@ async function stopRecording() {
         const downloadURL = await getDownloadURL(storageRef);
 
         await sendChatMessage({ type: "voice", audioUrl: downloadURL });
-
-        // temp mesajı sil
-        setMessages((prev) =>
-          prev.filter((m) => m.id !== tempId)
-        );
-
-        
-
       } catch (err) {
         console.log("Arka plan upload hatası:", err);
       }
     })();
 
   } catch (e) {
-  console.log("Ses gönderme hatası:", e);
-}
-finally {
-  isStoppingRef.current = false;
-}
+    console.log("Ses gönderme hatası:", e);
+    isStoppingRef.current = false;
+  }
+
 }async function cancelRecording() {
   try {
     if (!recording) return;
@@ -810,10 +780,12 @@ const sendMessage = async () => {
           setMessages(prev => prev.filter(m => m.id !== msg.id));
 
           // inverted FlatList için doğru index
-          flatListRef.current?.scrollToIndex({
-            index: index > 0 ? index - 1 : 0,
-            animated: false,
-          });
+         if (messages.length > 1) {
+  flatListRef.current?.scrollToIndex({
+    index: index > 0 ? index - 1 : 0,
+    animated: false,
+  });
+}
         } catch (e) {
           console.log("Mesaj silme hatası:", e);
         }
@@ -1082,25 +1054,40 @@ setNickModalVisible(false);
       </View>
 
       {/* MESSAGES */}
-      <FlatList
-      ref={flatListRef}
+     <FlatList
+  ref={flatListRef}
   data={messages}
-  
-   
+
   onEndReached={loadMore}
-onEndReachedThreshold={0.3}
+  onEndReachedThreshold={0.3}
+
   inverted
+
   maintainVisibleContentPosition={{
-  minIndexForVisible: 1,       
-  autoscrollToTopThreshold: 0, 
-}}
+    minIndexForVisible: 1,
+    autoscrollToTopThreshold: 0,
+  }}
+
   keyExtractor={(i) => i.id}
-  contentContainerStyle={{ padding: 16, flexGrow: 1, justifyContent: "flex-end" }}
+
+  contentContainerStyle={{
+    padding: 16,
+    flexGrow: 1,
+    justifyContent: "flex-end",
+  }}
+
+  // ✅ Büyük kullanıcı optimizasyonu
+  initialNumToRender={12}
+  maxToRenderPerBatch={12}
+  windowSize={10}
+  updateCellsBatchingPeriod={50}
+
+  // Chat ekranlarında genelde false bırakılır (inverted olduğu için)
   removeClippedSubviews={false}
+
   renderItem={({ item }) => {
-    
-  const isMe = item.senderId === deviceId;
-  const readCount = item.readBy?.length || 0;
+    const isMe = item.senderId === deviceId;
+    const readCount = item.readBy?.length || 0;
   
   if (!isMe && blockedIds.includes(item.senderId)) return null;
 
@@ -1340,7 +1327,7 @@ return (
               <TouchableOpacity
                 activeOpacity={0.8}
                 onLongPress={() => {
-                 if (isMe) deleteMessageAndKeepPosition(item.id);
+                 if (isMe) deleteMessageForEveryone(item);
                 }}
                 style={{
                   backgroundColor: isMe ? "#007AFF" : "#1C1C22",

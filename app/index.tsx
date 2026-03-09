@@ -282,7 +282,13 @@ setCreating(false);
 
   const visibleChats = myChats.filter((c) => !deletedChats.includes(c));
 
-  
+  if (!authReady) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: "#0B0B0F", justifyContent: "center", alignItems: "center" }}>
+        <Text style={{ color: "#fff" }}>Hazırlanıyor…</Text>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#0B0B0F" }}>

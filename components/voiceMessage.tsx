@@ -1,4 +1,6 @@
 import { AVPlaybackStatus, Audio } from "expo-av";
+import * as React from "react";
+
 import {
   addDoc,
   arrayUnion,
@@ -9,6 +11,7 @@ import {
   updateDoc,
 } from "firebase/firestore";
 import { useEffect, useRef, useState } from "react";
+
 import {
   Alert,
   StyleSheet,
@@ -32,19 +35,33 @@ type VoiceMessageProps = {
   readCount?: number;
 };
 
-// ✅ Ses süresini güvenli almak için yardımcı fonksiyon
+// ✅ GLOBAL AUDIO DURATION CACHE
+const durationCache = new Map<string, number>();
+
 async function getAudioDuration(uri?: string) {
   if (!uri) return { duration: 0 };
+
+  // cache varsa tekrar yükleme
+  if (durationCache.has(uri)) {
+    return { duration: durationCache.get(uri)! };
+  }
+
   try {
     const { sound, status } = await Audio.Sound.createAsync(
       { uri },
       { shouldPlay: false }
     );
+
     let duration = 0;
+
     if ("durationMillis" in status && status.durationMillis != null) {
       duration = status.durationMillis / 1000;
     }
+
     await sound.unloadAsync();
+
+    durationCache.set(uri, duration);
+
     return { duration };
   } catch (e) {
     console.warn("Audio load failed:", e);
@@ -52,7 +69,7 @@ async function getAudioDuration(uri?: string) {
   }
 }
 
-export default function VoiceMessage({
+function VoiceMessage({
   chatId,
   messageId,
   deviceId,
@@ -74,13 +91,17 @@ export default function VoiceMessage({
 
   useEffect(() => {
     if (!audioUrl) return;
+
     mountedRef.current = true;
 
     if (realDuration === 0) {
       (async () => {
         try {
           const { duration } = await getAudioDuration(audioUrl);
-          if (mountedRef.current) setRealDuration(duration);
+
+          if (mountedRef.current) {
+            setRealDuration(duration);
+          }
         } catch {}
       })();
     }
@@ -99,7 +120,9 @@ export default function VoiceMessage({
 
   async function markAsReadOnce() {
     if (markedReadRef.current || isMe) return;
+
     markedReadRef.current = true;
+
     try {
       await updateDoc(doc(db, "chats", chatId, "messages", messageId), {
         readBy: arrayUnion(deviceId),
@@ -140,6 +163,7 @@ export default function VoiceMessage({
               type: "voice",
               createdAt: serverTimestamp(),
             });
+
             Alert.alert("Teşekkürler", "Bildiriminiz alındı.");
           } catch {}
         },
@@ -174,8 +198,12 @@ export default function VoiceMessage({
 
         if (s.positionMillis != null) {
           const sec = s.positionMillis / 1000;
-          if (mountedRef.current) setPosition(sec);
-          lastPositionRef.current = sec;
+
+          // gereksiz render engeli
+          if (Math.abs(sec - lastPositionRef.current) > 0.2) {
+            lastPositionRef.current = sec;
+            setPosition(sec);
+          }
         }
 
         if (s.didJustFinish && mountedRef.current) {
@@ -221,6 +249,7 @@ export default function VoiceMessage({
       <View style={styles.waveContainer}>
         {Array.from({ length: 32 }).map((_, i) => {
           const active = i / 32 < progress;
+
           return (
             <View
               key={i}
@@ -237,12 +266,12 @@ export default function VoiceMessage({
       </View>
 
       <Text style={styles.timeText}>
-  {realDuration > 0
-    ? isPlaying
-      ? formatTime(Math.floor(position)) // Ses ilerlerken anlık saniye
-      : formatTime(realDuration) // Oynatmıyorsa toplam süre
-    : ""}
-</Text>
+        {realDuration > 0
+          ? isPlaying
+            ? formatTime(Math.floor(position))
+            : formatTime(realDuration)
+          : ""}
+      </Text>
 
       <View style={styles.metaContainer}>
         <Text style={styles.metaText}>
@@ -385,3 +414,4 @@ const styles = StyleSheet.create({
     color: "#aaa",
   },
 });
+export default React.memo(VoiceMessage);

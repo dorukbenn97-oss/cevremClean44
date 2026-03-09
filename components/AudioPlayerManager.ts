@@ -5,6 +5,9 @@ let isLoading = false;
 let currentUri: string | null = null;
 let onStopUI: (() => void) | null = null;
 
+// ✅ RAM AUDIO CACHE
+const soundCache = new Map<string, Audio.Sound>();
+
 async function ensureAudioMode() {
   await Audio.setAudioModeAsync({
     playsInSilentModeIOS: true,
@@ -19,8 +22,6 @@ export async function stopAudio() {
 
   try {
     await sound.stopAsync();
-    await sound.unloadAsync();
-    await new Promise((r) => setTimeout(r, 60));
   } catch {}
 
   if (onStopUI) onStopUI();
@@ -30,34 +31,53 @@ export async function stopAudio() {
   onStopUI = null;
 }
 
+async function getCachedSound(uri: string) {
+  if (soundCache.has(uri)) {
+    return soundCache.get(uri)!;
+  }
+
+  const newSound = new Audio.Sound();
+
+  await newSound.loadAsync({ uri }, { shouldPlay: false });
+
+  soundCache.set(uri, newSound);
+
+  return newSound;
+}
+
 export async function playAudio({
   uri,
+  startPosition = 0,
   onStatus,
   onStop,
 }: {
   uri: string;
+  startPosition?: number;
   onStatus?: (status: AVPlaybackStatus) => void;
   onStop: () => void;
 }) {
   if (isLoading) return;
+
   isLoading = true;
 
   try {
     await ensureAudioMode();
 
+    // aynı ses ise kapat
     if (sound && currentUri === uri) {
       await stopAudio();
+      isLoading = false;
       return;
     }
 
     await stopAudio();
 
-    const newSound = new Audio.Sound();
+    // ✅ CACHE'TEN AL
+    const newSound = await getCachedSound(uri);
 
-    await newSound.loadAsync(
-      { uri },
-      { shouldPlay: true }
-    );
+    if (startPosition > 0) {
+      await newSound.setPositionAsync(startPosition * 1000);
+    }
 
     if (onStatus) {
       newSound.setOnPlaybackStatusUpdate(onStatus);
