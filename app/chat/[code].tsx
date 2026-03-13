@@ -189,6 +189,14 @@ async function bumpActive() {
 
   
   const [isRecordingUI, setIsRecordingUI] = useState(false);
+  // --- KAYIT SÜRESİ İÇİN EKLENEN KISIM ---
+  const [recordingDuration, setRecordingDuration] = useState(0);
+
+  const formatDuration = (millis: number) => { // : number ekledik
+  const minutes = Math.floor(millis / 60000);
+  const seconds = Math.floor((millis % 60000) / 1000);
+  return `${minutes}:${seconds < 10 ? "0" : ""}${seconds}`;
+};
   
   
 
@@ -246,7 +254,6 @@ async function startRecording() {
   if (!chatId || !deviceId) return;
 
   try {
-
     await Audio.setAudioModeAsync({
       allowsRecordingIOS: true,
       playsInSilentModeIOS: true,
@@ -256,21 +263,28 @@ async function startRecording() {
     await rec.prepareToRecordAsync(
       Audio.RecordingOptionsPresets.HIGH_QUALITY
     );
+
+    // 🔥 SÜRE TAKİBİ EKLEMESİ: Her güncellemede süreyi state'e yazar
+    rec.setOnRecordingStatusUpdate((status) => {
+      if (status.durationMillis) {
+        setRecordingDuration(status.durationMillis);
+      }
+    });
+
     await rec.startAsync();
 
     setSomeoneRecording(true);
     setRecording(rec);
     setIsRecording(true);
 
-    // 🔥 Firestore'u sona attık
-    
+    // 🔥 Firestore işlemin aynen duruyor
     await setDoc(
-  doc(db, "chats", chatId, "typing", deviceId),
-  {
-    type: "voice",
-    updatedAt: serverTimestamp(),
-  }
-).catch(() => {});
+      doc(db, "chats", chatId, "typing", deviceId),
+      {
+        type: "voice",
+        updatedAt: serverTimestamp(),
+      }
+    ).catch(() => {});
 
   } catch (err) {
     console.log("record error", err);
@@ -278,57 +292,63 @@ async function startRecording() {
 }
 
 async function stopRecording() {
-  if (isStoppingRef.current) return;
+  const finalDuration = recordingDuration; 
+  if (isStoppingRef.current || !chatId || !recording) return;
   isStoppingRef.current = true;
 
   try {
-    // Firestore typing sil
-    if (chatId && deviceId) {
-      deleteDoc(doc(db, "chats", chatId, "typing", deviceId));
-    }
-
-    if (!recording) {
-      isStoppingRef.current = false;
-      return;
-    }
-
+    const currentRecording = recording;
     setIsRecording(false);
-    await recording.stopAndUnloadAsync();
-    await Audio.setAudioModeAsync({
-      allowsRecordingIOS: false,
-    });
-    setSomeoneRecording(false);
+    
+    // 1️⃣ Kaydı durdur ve YEREL DOSYA YOLUNU (URI) al
+    const status = await currentRecording.stopAndUnloadAsync();
+    const exactDuration = status?.durationMillis || finalDuration;
+    const localUri = currentRecording.getURI(); // 👈 Bu telefonun içindeki dosya yolu
 
-    const uri = recording.getURI();
+    setRecordingDuration(0);
     setRecording(null);
-    isStoppingRef.current = false; // UI kilidi açılıyor
+    isStoppingRef.current = false; 
 
-    if (!uri || !chatId || typeof chatId !== "string") return;
+    if (!localUri) return;
 
-    // 🔥 ARKA PLAN YÜKLEME
+    // 2️⃣ MESAJI ANINDA EKRANA DÜŞÜR (Yüklemeyi bekleme!)
+    // audioUrl olarak ŞİMDİLİK yerel dosya yolunu (localUri) veriyoruz.
+    // Böylece basar basmaz çalar, çünkü dosya zaten telefonun içinde.
+    const tempDocRef = await addDoc(collection(db, "chats", chatId as string, "messages"), {
+      type: "voice",
+      senderId: deviceId,
+      nick: nick,
+      createdAt: serverTimestamp(),
+      audioUrl: localUri, // 🚀 BURASI KRİTİK: Geçici olarak yerel yolu verdik
+      duration: exactDuration,
+      readBy: [deviceId],
+      deleted: false,
+    });
+
+    // 3️⃣ ARKA PLANDA SESSİZCE İNTERNETE YÜKLE
     (async () => {
       try {
-        const response = await fetch(uri);
+        const response = await fetch(localUri);
         const blob = await response.blob();
-
         const fileName = `voices/${chatId}/${Date.now()}.m4a`;
         const storageRef = ref(storage, fileName);
-
         await uploadBytes(storageRef, blob);
         const downloadURL = await getDownloadURL(storageRef);
 
-        await sendChatMessage({ type: "voice", audioUrl: downloadURL });
+        // 4️⃣ YÜKLEME BİTİNCE YEREL YOLU, GERÇEK İNTERNET LİNKİYLE DEĞİŞTİR
+        // (Böylece diğer kullanıcılar da görebilir)
+        await updateDoc(tempDocRef, { audioUrl: downloadURL });
       } catch (err) {
         console.log("Arka plan upload hatası:", err);
       }
     })();
 
   } catch (e) {
-    console.log("Ses gönderme hatası:", e);
     isStoppingRef.current = false;
   }
-
-}async function cancelRecording() {
+}
+async function cancelRecording() {
+  setRecordingDuration(0); // 🕒 Sayaç sıfırlandı
   try {
     if (!recording) return;
 
@@ -353,7 +373,6 @@ async function stopRecording() {
     console.log("Kayıt iptal hatası:", e);
   }
 }
-
   const pulseTop = useRef(new Animated.Value(1)).current;
   const isStoppingRef = useRef(false);
 useEffect(() => {
@@ -1542,36 +1561,118 @@ return (
         </TouchableOpacity>
       </>
     )}
+{/* 🎤 IŞILTILI TAM SİYAH KAYIT PANELİ */}
+{isRecording && (
+  <View style={{
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#000', // Tam siyah arka plan
+    height: 95, 
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    zIndex: 99999,
+    borderTopWidth: 1,
+    borderColor: '#333', // Üstte ince belirgin bir hat
+    elevation: 30,
+    shadowColor: "#FFF", // Hafif beyaz ışıltı gölgesi
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+  }}>
+    
+    {/* 🗑️ SİLME BUTONU (PARLAK KIRMIZI DOKUNUŞLU) */}
+    <TouchableOpacity 
+      onPress={cancelRecording} 
+      style={{ 
+        backgroundColor: 'rgba(255, 59, 48, 0.2)', 
+        width: 46, 
+        height: 46, 
+        borderRadius: 23, 
+        justifyContent: 'center', 
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: 'rgba(255, 59, 48, 0.4)'
+      }}
+    >
+      <Ionicons name="trash" size={24} color="#FF3B30" />
+    </TouchableOpacity>
 
-    {/* 🎧 KAYIT VARKEN (WHATSAPP BAR) */}
-    {isRecording && (
-      <View
-        style={{
-          flex: 1,
-          flexDirection: "row",
-          alignItems: "center",
-          backgroundColor: "#1C1C22",
-          borderRadius: 20,
-          paddingHorizontal: 12,
-          paddingVertical: 10,
-        }}
-      >
-        <TouchableOpacity
-          onPress={cancelRecording}
-          style={{ marginRight: 12 }}
-        >
-          <Ionicons name="trash" size={22} color="#f55" />
-        </TouchableOpacity>
+    {/* 🕒 SÜRE KAPSÜLÜ (SABİT VE ŞIK) */}
+    <View style={{ 
+      backgroundColor: '#1C1C1E', 
+      paddingHorizontal: 15, 
+      paddingVertical: 10, 
+      borderRadius: 25, 
+      marginLeft: 15,
+      minWidth: 65,
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: '#333'
+    }}>
+      <Text style={{ 
+        color: '#FFF', 
+        fontWeight: 'bold', 
+        fontSize: 17,
+        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+        textShadowColor: 'rgba(255, 255, 255, 0.3)', // Rakamlara hafif ışıltı
+        textShadowOffset: { width: 0, height: 0 },
+        textShadowRadius: 5
+      }}>
+        {formatDuration(recordingDuration)}
+      </Text>
+    </View>
 
-        <Text style={{ color: "#fff", flex: 1 }}>
-          Kayıt alınıyor…
-        </Text>
+    {/* ⚪ AKAN IŞILTILI BEYAZ NOKTALAR */}
+    <View style={{ flex: 1, height: 40, justifyContent: 'center', marginHorizontal: 15, overflow: 'hidden' }}>
+      <Animated.View style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 9,
+        transform: [{ translateX: -(recordingDuration % 1000) / 10 }]
+      }}>
+        {[...Array(30)].map((_, i) => (
+          <View 
+            key={i} 
+            style={{
+              width: 5,
+              height: 5,
+              backgroundColor: i % 4 === 0 ? '#FFF' : 'rgba(255, 255, 255, 0.4)', // Bazı noktalar tam parlak
+              borderRadius: 2.5,
+              // Noktalara parlama efekti
+              shadowColor: '#FFF',
+              shadowRadius: i % 4 === 0 ? 4 : 0,
+              shadowOpacity: i % 4 === 0 ? 0.8 : 0,
+            }} 
+          />
+        ))}
+      </Animated.View>
+    </View>
 
-        <TouchableOpacity onPress={stopRecording}>
-          <Ionicons name="send" size={22} color="#2ecc71" />
-        </TouchableOpacity>
-      </View>
-    )}
+    {/* ✅ GÖNDER BUTONU (PARLAK YEŞİL) */}
+    <TouchableOpacity 
+      onPress={stopRecording} 
+      style={{ 
+        backgroundColor: '#34C759', 
+        width: 50, 
+        height: 50, 
+        borderRadius: 25, 
+        justifyContent: 'center', 
+        alignItems: 'center',
+        shadowColor: "#34C759",
+        shadowRadius: 15, // Gönder butonuna güçlü ışıltı
+        shadowOpacity: 0.6,
+        elevation: 10
+      }}
+    >
+      <Ionicons name="send" size={24} color="#fff" />
+    </TouchableOpacity>
+  </View>
+)}
+
+   
   </View>
 )}
 

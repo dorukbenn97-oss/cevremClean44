@@ -90,27 +90,31 @@ function VoiceMessage({
   const [realDuration, setRealDuration] = useState(duration || 0);
 
   useEffect(() => {
-    if (!audioUrl) return;
+    // 🔥 KRİTİK DÜZELTME: Eğer ses şu an çalıyorsa, URL değişse bile sıfırlama yapma!
+    if (isPlaying) return; 
+
+    if (!audioUrl || audioUrl === "loading") return;
 
     mountedRef.current = true;
 
-    if (realDuration === 0) {
-      (async () => {
-        try {
-          const { duration } = await getAudioDuration(audioUrl);
-
-          if (mountedRef.current) {
-            setRealDuration(duration);
-          }
-        } catch {}
-      })();
-    }
+    (async () => {
+      try {
+        const { duration: fetchedDur } = await getAudioDuration(audioUrl);
+        if (mountedRef.current) {
+          setRealDuration(fetchedDur);
+        }
+      } catch (e) {
+        console.warn("Ses yükleme hatası:", e);
+      }
+    })();
 
     return () => {
-      mountedRef.current = false;
-      stopAudio();
+      // Burası önemli: Sadece bileşen tamamen ekrandan giderse sesi durdur
+      if (!mountedRef.current) {
+        stopAudio();
+      }
     };
-  }, [audioUrl]);
+  }, [audioUrl]); // URL değiştiğinde (loading -> gerçek link) burası tetiklenir ama isPlaying sayesinde durmaz
 
   const formatTime = (sec: number) => {
     const m = Math.floor(sec / 60);
@@ -176,7 +180,7 @@ function VoiceMessage({
       console.warn("Audio URL yok, oynatma başlatılamıyor");
       return;
     }
-
+ 
     if (isPlaying) {
       setIsPlaying(false);
       stopAudio();
