@@ -295,8 +295,7 @@ async function startRecording() {
     setRecording(null);
   }
 }
-
-async function stopRecording() {
+async function stopRecording(isMe: boolean) { 
   const finalDuration = recordingDuration;
   if (isStoppingRef.current || !chatId || !recording) return;
 
@@ -305,9 +304,9 @@ async function stopRecording() {
     recordingTimerRef.current = null;
   }
 
-  // 🚀 1. GÖRSEL TEPKİ: Saniyeler içinde arayüzü boşa çıkar
+  // 🚀 1. GÖRSEL TEPKİ
   setIsRecording(false);
-  isStoppingRef.current = true; 
+  isStoppingRef.current = true;
   setRecordingDuration(0);
 
   try {
@@ -318,8 +317,7 @@ async function stopRecording() {
 
     setRecording(null);
 
-    // 🚀 2. KESİN ÇÖZÜM: İnternet ne durumda olursa olsun kilidi BURADA aç
-    // Bu satır sayesinde buton bir daha asla pasif kalmaz.
+    // 🔓 UI kilidi hemen açılır
     isStoppingRef.current = false;
 
     if (!localUri) return;
@@ -327,41 +325,53 @@ async function stopRecording() {
     const fileName = `voices/${chatId}/${Date.now()}.m4a`;
     const storageRef = ref(storage, fileName);
 
+    // 🚀 MESAJ ANINDA DÜŞER, kendi cihaz için anında ses
+    const tempDocRef = await addDoc(
+      collection(db, "chats", chatId as string, "messages"),
+      {
+        type: "voice",
+        senderId: deviceId,
+        nick: nick,
+        createdAt: serverTimestamp(),
+        audioUrl: isMe ? localUri : "loading", // 🔥 kendi cihazda anında çal, diğerinde loading
+        duration: Math.floor(exactDuration / 1000),
+        readBy: [deviceId],
+        deleted: false,
+      }
+    );
+
+    // 🚀 ARKA PLANDA UPLOAD
     const xhr = new XMLHttpRequest();
+    xhr.responseType = "blob";
+
     xhr.onload = async function () {
       try {
         const blob = xhr.response;
         if (!blob) return;
 
-        const tempDocRef = await addDoc(collection(db, "chats", chatId as string, "messages"), {
-          type: "voice",
-          senderId: deviceId,
-          nick: nick,
-          createdAt: serverTimestamp(),
-          audioUrl: localUri,
-          duration: Math.floor(exactDuration / 1000),
-          readBy: [deviceId],
-          deleted: false,
-        });
-
         await uploadBytes(storageRef, blob);
         const downloadURL = await getDownloadURL(storageRef);
-        await updateDoc(tempDocRef, { audioUrl: downloadURL });
+
+        // 🚀 UPLOAD BİTİNCE ses aktif, Firestore güncellenir
+        await updateDoc(tempDocRef, {
+          audioUrl: downloadURL,
+        });
+
       } catch (err) {
         console.log("Background upload error:", err);
       }
     };
 
     xhr.onerror = () => { isStoppingRef.current = false; };
-    xhr.responseType = "blob";
     xhr.open("GET", localUri, true);
     xhr.send();
 
   } catch (e) {
     console.log("Stop error:", e);
-    isStoppingRef.current = false; // Hata anında emniyet kilidi
+    isStoppingRef.current = false;
   }
 }
+
 async function cancelRecording() {
   setRecordingDuration(0); 
   try {
@@ -1667,23 +1677,23 @@ return (
     </View>
 
     {/* ✅ GÖNDER BUTONU (PARLAK YEŞİL) */}
-    <TouchableOpacity 
-      onPress={stopRecording} 
-      style={{ 
-        backgroundColor: '#34C759', 
-        width: 50, 
-        height: 50, 
-        borderRadius: 25, 
-        justifyContent: 'center', 
-        alignItems: 'center',
-        shadowColor: "#34C759",
-        shadowRadius: 15, // Gönder butonuna güçlü ışıltı
-        shadowOpacity: 0.6,
-        elevation: 10
-      }}
-    >
-      <Ionicons name="send" size={24} color="#fff" />
-    </TouchableOpacity>
+<TouchableOpacity 
+  onPress={() => stopRecording(true)} // 🔹 kendi cihaz için anında çalacak
+  style={{ 
+    backgroundColor: '#34C759', 
+    width: 50, 
+    height: 50, 
+    borderRadius: 25, 
+    justifyContent: 'center', 
+    alignItems: 'center',
+    shadowColor: "#34C759",
+    shadowRadius: 15, // Gönder butonuna güçlü ışıltı
+    shadowOpacity: 0.6,
+    elevation: 10
+  }}
+>
+  <Ionicons name="send" size={24} color="#fff" />
+</TouchableOpacity>
   </View>
 )}
 
