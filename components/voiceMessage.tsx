@@ -1,5 +1,6 @@
-import { AVPlaybackStatus, Audio } from "expo-av";
+import { Audio } from "expo-av";
 import * as React from "react";
+
 
 import {
   addDoc,
@@ -12,15 +13,18 @@ import {
 } from "firebase/firestore";
 import { useEffect, useRef, useState } from "react";
 
+
 import {
+  ActivityIndicator,
   Alert,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
 import { db } from "../firebaseConfig";
 import { playAudio, stopAudio } from "./AudioPlayerManager";
+
 
 type VoiceMessageProps = {
   chatId: string;
@@ -90,32 +94,37 @@ function VoiceMessage({
   const [realDuration, setRealDuration] = useState(duration || 0);
 
   useEffect(() => {
-    // 🔥 KRİTİK DÜZELTME: Eğer ses şu an çalıyorsa, URL değişse bile sıfırlama yapma!
-    if (isPlaying) return; 
+    if (duration > 0) {
+      const d = duration > 1000 ? Math.floor(duration / 1000) : duration;
+      setRealDuration(d);
+    }
+  }, [duration]);
 
+  useEffect(() => {
     if (!audioUrl || audioUrl === "loading") return;
 
     mountedRef.current = true;
 
+    if (isPlaying && position === 0) {
+      handlePlayNow();
+    }
+
     (async () => {
       try {
+        if (realDuration > 0) return;
         const { duration: fetchedDur } = await getAudioDuration(audioUrl);
-        if (mountedRef.current) {
+        if (mountedRef.current && fetchedDur > 0) {
           setRealDuration(fetchedDur);
         }
-      } catch (e) {
-        console.warn("Ses yükleme hatası:", e);
-      }
+      } catch (e) {}
     })();
 
     return () => {
-      // Burası önemli: Sadece bileşen tamamen ekrandan giderse sesi durdur
       if (!mountedRef.current) {
         stopAudio();
       }
     };
-  }, [audioUrl]); // URL değiştiğinde (loading -> gerçek link) burası tetiklenir ama isPlaying sayesinde durmaz
-
+  }, [audioUrl]);
   const formatTime = (sec: number) => {
     const m = Math.floor(sec / 60);
     const s = Math.floor(sec % 60);
@@ -176,52 +185,54 @@ function VoiceMessage({
   }
 
   async function togglePlay() {
-    if (!audioUrl) {
-      console.warn("Audio URL yok, oynatma başlatılamıyor");
-      return;
-    }
- 
     if (isPlaying) {
       setIsPlaying(false);
       stopAudio();
       return;
     }
+    handlePlayNow();
+  }
 
+  async function handlePlayNow(retries = 0) {
+    if (!mountedRef.current) return;
+    
     setIsPlaying(true);
     stopAudio();
 
-    playAudio({
-      uri: audioUrl,
-      onStatus: (status: AVPlaybackStatus) => {
-        if (!status.isLoaded || !mountedRef.current) return;
+    if (!audioUrl || audioUrl === "loading") return;
 
-        const s = status as typeof status & {
-          positionMillis?: number;
-          didJustFinish?: boolean;
-        };
+    try {
+      await playAudio({
+        uri: audioUrl,
+        onStatus: (status: any) => {
+          if (!status.isLoaded || !mountedRef.current) return;
 
-        if (s.positionMillis != null) {
-          const sec = s.positionMillis / 1000;
-
-          // gereksiz render engeli
-          if (Math.abs(sec - lastPositionRef.current) > 0.2) {
-            lastPositionRef.current = sec;
-            setPosition(sec);
+          if (status.positionMillis != null) {
+            const sec = status.positionMillis / 1000;
+            if (Math.abs(sec - lastPositionRef.current) > 0.2) {
+              lastPositionRef.current = sec;
+              setPosition(sec);
+            }
           }
-        }
 
-        if (s.didJustFinish && mountedRef.current) {
-          setIsPlaying(false);
-          setPosition(0);
-          lastPositionRef.current = 0;
-        }
-      },
-      onStop: () => {
-        if (mountedRef.current) setIsPlaying(false);
-      },
-    });
-
-    markAsReadOnce();
+          if (status.didJustFinish && mountedRef.current) {
+            setIsPlaying(false);
+            setPosition(0);
+            lastPositionRef.current = 0;
+          }
+        },
+        onStop: () => {
+          if (mountedRef.current) setIsPlaying(false);
+        },
+      });
+      markAsReadOnce();
+    } catch (error) {
+      if (retries < 15 && mountedRef.current) {
+        setTimeout(() => handlePlayNow(retries + 1), 200);
+      } else {
+        setIsPlaying(false);
+      }
+    }
   }
 
   const progress = realDuration > 0 ? position / realDuration : 0;
@@ -234,21 +245,24 @@ function VoiceMessage({
         isPlaying && styles.playingGlow,
       ]}
     >
-      <TouchableOpacity
-        onPress={togglePlay}
-        onLongPress={handleLongPress}
-        activeOpacity={0.9}
-        style={[styles.playButton, isPlaying && styles.playButtonActive]}
-      >
-        {isPlaying ? (
-          <>
-            <View style={styles.pauseBar} />
-            <View style={styles.pauseBar} />
-          </>
-        ) : (
-          <View style={styles.playTriangle} />
-        )}
-      </TouchableOpacity>
+   <TouchableOpacity
+  onPress={togglePlay}
+  onLongPress={handleLongPress}
+  activeOpacity={0.9}
+  style={[styles.playButton, isPlaying && styles.playButtonActive]}
+>
+  {/* Eğer mesaj senin değilse ve link henüz internet linki (http) olmamışsa halka döner */}
+  {isPlaying && !isMe && (!audioUrl || audioUrl === "loading" || audioUrl.startsWith('file://')) ? (
+    <ActivityIndicator size="small" color="#F0F6FF" />
+  ) : isPlaying ? (
+    <View style={{ flexDirection: 'row', gap: 4 }}>
+      <View style={styles.pauseBar} />
+      <View style={styles.pauseBar} />
+    </View>
+  ) : (
+    <View style={styles.playTriangle} />
+  )}
+</TouchableOpacity>
 
       <View style={styles.waveContainer}>
         {Array.from({ length: 32 }).map((_, i) => {

@@ -191,7 +191,7 @@ async function bumpActive() {
   const [isRecordingUI, setIsRecordingUI] = useState(false);
   // --- KAYIT SÜRESİ İÇİN EKLENEN KISIM ---
   const [recordingDuration, setRecordingDuration] = useState(0);
-
+const recordingTimerRef = useRef<any>(null);
   const formatDuration = (millis: number) => { // : number ekledik
   const minutes = Math.floor(millis / 60000);
   const seconds = Math.floor((millis % 60000) / 1000);
@@ -254,101 +254,116 @@ async function startRecording() {
   if (!chatId || !deviceId) return;
 
   try {
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+    }
+    setRecordingDuration(0);
+
     await Audio.setAudioModeAsync({
       allowsRecordingIOS: true,
       playsInSilentModeIOS: true,
     });
 
     const rec = new Audio.Recording();
-    await rec.prepareToRecordAsync(
-      Audio.RecordingOptionsPresets.HIGH_QUALITY
-    );
-
-    // 🔥 SÜRE TAKİBİ EKLEMESİ: Her güncellemede süreyi state'e yazar
-    rec.setOnRecordingStatusUpdate((status) => {
-      if (status.durationMillis) {
-        setRecordingDuration(status.durationMillis);
-      }
-    });
-
+    await rec.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
     await rec.startAsync();
 
-    setSomeoneRecording(true);
     setRecording(rec);
     setIsRecording(true);
+    setSomeoneRecording(true);
 
-    // 🔥 Firestore işlemin aynen duruyor
-    await setDoc(
-      doc(db, "chats", chatId, "typing", deviceId),
-      {
-        type: "voice",
-        updatedAt: serverTimestamp(),
+    const startTime = Date.now();
+    
+    recordingTimerRef.current = setInterval(() => {
+      if (!isStoppingRef.current) {
+        setRecordingDuration(Date.now() - startTime);
+      } else {
+        if (recordingTimerRef.current) {
+          clearInterval(recordingTimerRef.current);
+          recordingTimerRef.current = null;
+        }
       }
-    ).catch(() => {});
+    }, 100);
 
   } catch (err) {
     console.log("record error", err);
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+    setIsRecording(false);
+    setRecording(null);
   }
 }
 
 async function stopRecording() {
-  const finalDuration = recordingDuration; 
+  const finalDuration = recordingDuration;
   if (isStoppingRef.current || !chatId || !recording) return;
-  isStoppingRef.current = true;
+
+  if (recordingTimerRef.current) {
+    clearInterval(recordingTimerRef.current);
+    recordingTimerRef.current = null;
+  }
+
+  // 🚀 1. GÖRSEL TEPKİ: Saniyeler içinde arayüzü boşa çıkar
+  setIsRecording(false);
+  isStoppingRef.current = true; 
+  setRecordingDuration(0);
 
   try {
     const currentRecording = recording;
-    setIsRecording(false);
-    
-    // 1️⃣ Kaydı durdur ve YEREL DOSYA YOLUNU (URI) al
     const status = await currentRecording.stopAndUnloadAsync();
     const exactDuration = status?.durationMillis || finalDuration;
-    const localUri = currentRecording.getURI(); // 👈 Bu telefonun içindeki dosya yolu
+    const localUri = currentRecording.getURI();
 
-    setRecordingDuration(0);
     setRecording(null);
-    isStoppingRef.current = false; 
+
+    // 🚀 2. KESİN ÇÖZÜM: İnternet ne durumda olursa olsun kilidi BURADA aç
+    // Bu satır sayesinde buton bir daha asla pasif kalmaz.
+    isStoppingRef.current = false;
 
     if (!localUri) return;
 
-    // 2️⃣ MESAJI ANINDA EKRANA DÜŞÜR (Yüklemeyi bekleme!)
-    // audioUrl olarak ŞİMDİLİK yerel dosya yolunu (localUri) veriyoruz.
-    // Böylece basar basmaz çalar, çünkü dosya zaten telefonun içinde.
-    const tempDocRef = await addDoc(collection(db, "chats", chatId as string, "messages"), {
-      type: "voice",
-      senderId: deviceId,
-      nick: nick,
-      createdAt: serverTimestamp(),
-      audioUrl: localUri, // 🚀 BURASI KRİTİK: Geçici olarak yerel yolu verdik
-      duration: exactDuration,
-      readBy: [deviceId],
-      deleted: false,
-    });
+    const fileName = `voices/${chatId}/${Date.now()}.m4a`;
+    const storageRef = ref(storage, fileName);
 
-    // 3️⃣ ARKA PLANDA SESSİZCE İNTERNETE YÜKLE
-    (async () => {
+    const xhr = new XMLHttpRequest();
+    xhr.onload = async function () {
       try {
-        const response = await fetch(localUri);
-        const blob = await response.blob();
-        const fileName = `voices/${chatId}/${Date.now()}.m4a`;
-        const storageRef = ref(storage, fileName);
+        const blob = xhr.response;
+        if (!blob) return;
+
+        const tempDocRef = await addDoc(collection(db, "chats", chatId as string, "messages"), {
+          type: "voice",
+          senderId: deviceId,
+          nick: nick,
+          createdAt: serverTimestamp(),
+          audioUrl: localUri,
+          duration: Math.floor(exactDuration / 1000),
+          readBy: [deviceId],
+          deleted: false,
+        });
+
         await uploadBytes(storageRef, blob);
         const downloadURL = await getDownloadURL(storageRef);
-
-        // 4️⃣ YÜKLEME BİTİNCE YEREL YOLU, GERÇEK İNTERNET LİNKİYLE DEĞİŞTİR
-        // (Böylece diğer kullanıcılar da görebilir)
         await updateDoc(tempDocRef, { audioUrl: downloadURL });
       } catch (err) {
-        console.log("Arka plan upload hatası:", err);
+        console.log("Background upload error:", err);
       }
-    })();
+    };
+
+    xhr.onerror = () => { isStoppingRef.current = false; };
+    xhr.responseType = "blob";
+    xhr.open("GET", localUri, true);
+    xhr.send();
 
   } catch (e) {
-    isStoppingRef.current = false;
+    console.log("Stop error:", e);
+    isStoppingRef.current = false; // Hata anında emniyet kilidi
   }
 }
 async function cancelRecording() {
-  setRecordingDuration(0); // 🕒 Sayaç sıfırlandı
+  setRecordingDuration(0); 
   try {
     if (!recording) return;
 
