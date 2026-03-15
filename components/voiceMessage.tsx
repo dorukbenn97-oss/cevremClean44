@@ -1,5 +1,6 @@
 import { Audio } from "expo-av";
 import * as React from "react";
+import { AppState } from "react-native";
 
 
 import {
@@ -100,31 +101,47 @@ function VoiceMessage({
     }
   }, [duration]);
 
-  useEffect(() => {
-    if (!audioUrl || audioUrl === "loading") return;
+ useEffect(() => {
+  if (!audioUrl || audioUrl === "loading") return;
+  mountedRef.current = true;
 
-    mountedRef.current = true;
-
-    if (isPlaying && position === 0) {
-      handlePlayNow();
-    }
-
-    (async () => {
-      try {
-        if (realDuration > 0) return;
-        const { duration: fetchedDur } = await getAudioDuration(audioUrl);
-        if (mountedRef.current && fetchedDur > 0) {
-          setRealDuration(fetchedDur);
-        }
-      } catch (e) {}
-    })();
-
-    return () => {
-      if (!mountedRef.current) {
-        stopAudio();
+  (async () => {
+    try {
+      const { duration: fetchedDur } = await getAudioDuration(audioUrl);
+      if (mountedRef.current && fetchedDur > 0) {
+        setRealDuration(fetchedDur);
+        // 🔹 Buradaki otomatik handlePlayNow() kaldırılacak
+        // if (position === 0 && !isPlaying) {
+        //   handlePlayNow();
+        // }
       }
-    };
-  }, [audioUrl]);
+    } catch (e) {
+      console.warn("Audio duration fetch failed:", e);
+    }
+  })();
+
+  return () => {
+    mountedRef.current = false;
+    stopAudio();
+  };
+}, [audioUrl]);
+useEffect(() => {
+  const handleAppStateChange = (nextAppState: string) => {
+    // Artık otomatik çalma yok
+    // Sadece mountedRef ile temizlik
+    if (nextAppState !== "active") {
+      mountedRef.current = false;
+      stopAudio();
+    }
+  };
+
+  const subscription = AppState.addEventListener("change", handleAppStateChange);
+
+  return () => {
+    subscription.remove();
+  };
+
+}, [isPlaying, audioUrl]);
   const formatTime = (sec: number) => {
     const m = Math.floor(sec / 60);
     const s = Math.floor(sec % 60);
@@ -184,56 +201,59 @@ function VoiceMessage({
     ]);
   }
 
-  async function togglePlay() {
-    if (isPlaying) {
-      setIsPlaying(false);
-      stopAudio();
-      return;
-    }
-    handlePlayNow();
-  }
-
-  async function handlePlayNow(retries = 0) {
-    if (!mountedRef.current) return;
-    
-    setIsPlaying(true);
+ async function togglePlay() {
+  if (isPlaying) {
+    setIsPlaying(false);
     stopAudio();
+    return;
+  }
 
-    if (!audioUrl || audioUrl === "loading") return;
+  // Artık mountedRef kontrolünü içeri aldık
+  if (!audioUrl || audioUrl === "loading") {
+    console.warn("Ses dosyası hazır değil.");
+    return;
+  }
 
-    try {
-      await playAudio({
-        uri: audioUrl,
-        onStatus: (status: any) => {
-          if (!status.isLoaded || !mountedRef.current) return;
+  handlePlayNow(); // güvenli şekilde çağır
+}
 
-          if (status.positionMillis != null) {
-            const sec = status.positionMillis / 1000;
-            if (Math.abs(sec - lastPositionRef.current) > 0.2) {
-              lastPositionRef.current = sec;
-              setPosition(sec);
-            }
-          }
+async function handlePlayNow(retries = 0) {
+  // mountedRef false olsa bile retry ile denemeye devam
+  setIsPlaying(true);
+  
+  try {
+    await playAudio({
+      uri: audioUrl!,
+      onStatus: (status: any) => {
+        if (!status.isLoaded) return;
 
-          if (status.didJustFinish && mountedRef.current) {
-            setIsPlaying(false);
-            setPosition(0);
-            lastPositionRef.current = 0;
-          }
-        },
-        onStop: () => {
-          if (mountedRef.current) setIsPlaying(false);
-        },
-      });
-      markAsReadOnce();
-    } catch (error) {
-      if (retries < 15 && mountedRef.current) {
-        setTimeout(() => handlePlayNow(retries + 1), 200);
-      } else {
+        if (status.positionMillis != null) {
+          const sec = status.positionMillis / 1000;
+          lastPositionRef.current = sec;
+          setPosition(sec);
+        }
+
+        if (status.didJustFinish) {
+          setIsPlaying(false);
+          setPosition(0);
+          lastPositionRef.current = 0;
+        }
+      },
+      onStop: () => {
         setIsPlaying(false);
-      }
+      },
+    });
+
+    markAsReadOnce();
+  } catch (error) {
+    if (retries < 15) {
+      setTimeout(() => handlePlayNow(retries + 1), 200);
+    } else {
+      setIsPlaying(false);
+      console.warn("Ses oynatma başarısız oldu:", error);
     }
   }
+}
 
   const progress = realDuration > 0 ? position / realDuration : 0;
 

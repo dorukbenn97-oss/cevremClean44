@@ -12,7 +12,7 @@ async function ensureAudioMode() {
   await Audio.setAudioModeAsync({
     playsInSilentModeIOS: true,
     allowsRecordingIOS: false,
-    staysActiveInBackground: false,
+    staysActiveInBackground: true, // artık arka planda da hazır
     shouldDuckAndroid: true,
   });
 }
@@ -37,11 +37,8 @@ async function getCachedSound(uri: string) {
   }
 
   const newSound = new Audio.Sound();
-
   await newSound.loadAsync({ uri }, { shouldPlay: false });
-
   soundCache.set(uri, newSound);
-
   return newSound;
 }
 
@@ -63,13 +60,14 @@ export async function playAudio({
   try {
     await ensureAudioMode();
 
-    // aynı ses ise kapat
+    // aynı ses varsa önce kapat
     if (sound && currentUri === uri) {
       await stopAudio();
       isLoading = false;
       return;
     }
 
+    // önceki sesi durdur
     await stopAudio();
 
     // ✅ CACHE'TEN AL
@@ -80,7 +78,18 @@ export async function playAudio({
     }
 
     if (onStatus) {
-      newSound.setOnPlaybackStatusUpdate(onStatus);
+      newSound.setOnPlaybackStatusUpdate((status) => {
+        // pozisyon anında güncellenecek
+        if (!status.isLoaded) return;
+
+        if (status.positionMillis != null) {
+          onStatus(status); // UI güncellemesi
+        }
+
+        if (status.didJustFinish) {
+          stopAudio();
+        }
+      });
     }
 
     sound = newSound;
